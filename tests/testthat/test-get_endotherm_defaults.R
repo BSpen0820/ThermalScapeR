@@ -84,3 +84,8 @@ test_that("a custom table with a misspelled param is rejected", {
   tbl$param[tbl$param == "animal.body_mass"] <- "animal.body_mas"
   expect_error(get_endotherm_defaults("Test Sheep", presets = tbl), "unknown param.*animal.body_mas")
 })
+
+test_that("the juldays default is the literal monthly-midpoint vector", {
+  expect_identical(eval(formals(get_endotherm_defaults)$juldays), .endo_default_juldays)
+  expect_false(is.name(formals(get_endotherm_defaults)$juldays))
+})

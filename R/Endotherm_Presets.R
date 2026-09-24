@@ -19,10 +19,17 @@
 }
 
 .endo_read_csv <- function(path) {
-  tbl <- utils::read.csv(path, check.names = FALSE, colClasses = "character",
-                         na.strings = c("", "NA"), stringsAsFactors = FALSE,
-                         fileEncoding = "UTF-8-BOM")
-  tbl
+  raw_lines <- readLines(path, warn = FALSE, encoding = "bytes")
+  enc <- "UTF-8-BOM"
+  if (!all(validUTF8(raw_lines))) {
+    warning(sprintf(paste0(
+      "presets CSV is not UTF-8 encoded; reading it as Windows-1252 (CP1252). ",
+      "Next time save it from Excel as \"CSV UTF-8\":\n  %s"), path))
+    enc <- "CP1252"
+  }
+  utils::read.csv(path, check.names = FALSE, colClasses = "character",
+                  na.strings = c("", "NA"), stringsAsFactors = FALSE,
+                  fileEncoding = enc)
 }
 
 .endo_check_presets <- function(tbl, builtin) {
@@ -88,7 +95,10 @@
     stop("'species' must be a single string")
   hit <- which(sp_cols == species)
   if (length(hit) == 0L) hit <- which(tolower(sp_cols) == tolower(species))
-  if (length(hit) != 1L)
+  if (length(hit) > 1L)
+    stop(sprintf("Species name '%s' is ambiguous (matches, ignoring case: %s); use the exact name",
+                 species, paste(sprintf("'%s'", sp_cols[hit]), collapse = ", ")))
+  if (length(hit) == 0L)
     stop(sprintf("Unknown species '%s'. Available: %s", species,
                  paste(sprintf("'%s'", sp_cols), collapse = ", ")))
   sp_cols[hit]
@@ -188,6 +198,35 @@
   .endo_resolve_preset(tbl, root, julnum, juldays)
 }
 
+.endo_closest <- function(x, candidates) {
+  if (length(candidates) == 0L) return(NA_character_)
+  candidates[which.min(as.vector(utils::adist(x, candidates)))]
+}
+
+.endo_check_unknown_fields <- function(caller, base, prefix) {
+  if (!is.list(caller) || length(caller) == 0L) return(character(0))
+  nms <- names(caller)
+  if (is.null(nms)) nms <- rep("", length(caller))
+  out <- character(0)
+  for (i in seq_along(caller)) {
+    nm <- nms[i]
+    if (is.na(nm) || !nzchar(nm)) {
+      out <- c(out, sprintf("%s.<unnamed element %d> (every field must be named)", prefix, i))
+      next
+    }
+    path <- paste(prefix, nm, sep = ".")
+    if (!nm %in% names(base)) {
+      near <- .endo_closest(nm, names(base))
+      out <- c(out, if (is.na(near)) path else
+        sprintf("%s (did you mean %s.%s?)", path, prefix, near))
+      next
+    }
+    if (is.list(base[[nm]]) && is.list(caller[[i]]))
+      out <- c(out, .endo_check_unknown_fields(caller[[i]], base[[nm]], path))
+  }
+  out
+}
+
 .endo_read_presets <- function(presets = NULL) {
   builtin <- .endo_builtin_presets()
   if (is.null(presets)) return(builtin)
@@ -245,7 +284,8 @@
 #' @export
 get_endotherm_defaults <- function(species = "Female Bighorn - Winter",
                                    julnum = 12,
-                                   juldays = .endo_default_juldays,
+                                   juldays = c(15, 45, 74, 105, 135, 166, 196, 227, 258,
+                                               288, 319, 349),
                                    presets = NULL) {
   .chk_vec_len(juldays, julnum, "juldays")
   tbl <- .endo_read_presets(presets)
@@ -330,6 +370,10 @@ override_endotherm_defaults <- function(defaults, ...) {
   if (is.null(names(overrides)) || any(!nzchar(names(overrides))))
     stop("every override must be named with a dotted path, e.g. animal.body_mass = 60")
 
+  if (anyDuplicated(names(overrides)))
+    stop(sprintf("duplicate override path(s): %s",
+                 paste(unique(names(overrides)[duplicated(names(overrides))]), collapse = ", ")))
+
   valid_paths <- names(.endo_flatten(defaults))
   for (path in names(overrides)) {
     if (path %in% c("model_settings.julnum", "model_settings.juldays"))
@@ -347,6 +391,10 @@ override_endotherm_defaults <- function(defaults, ...) {
       stop(sprintf("'%s' must be character", path))
     if (!is.character(current) && !is.numeric(value))
       stop(sprintf("'%s' must be numeric", path))
+    if (is.numeric(value) && any(!is.finite(value)))
+      stop(sprintf("'%s' must contain only finite numbers (no NA, NaN or Inf)", path))
+    if (is.character(value) && anyNA(value))
+      stop(sprintf("'%s' must not contain NA", path))
 
     if (length(current) == 1L) {
       if (length(value) != 1L)
@@ -415,10 +463,15 @@ endotherm_preset_template <- function(new_species, base_species = NULL,
   tbl <- .endo_read_presets(presets)
   if (new_species %in% names(tbl))
     stop(sprintf("'%s' already exists in the presets table", new_species))
+  sp_cols <- setdiff(names(tbl), .endo_reserved_cols)
+  same_ci <- sp_cols[tolower(sp_cols) == tolower(new_species)]
+  if (length(same_ci))
+    stop(sprintf("'%s' differs only by case from existing species '%s'",
+                 new_species, same_ci[1]))
 
   col <- rep(NA_character_, nrow(tbl))
   if (!is.null(base_species)) {
-    base <- .endo_match_species(base_species, setdiff(names(tbl), .endo_reserved_cols))
+    base <- .endo_match_species(base_species, sp_cols)
     col[tbl$param == .endo_inherit_row] <- base
   }
   tbl[[new_species]] <- col

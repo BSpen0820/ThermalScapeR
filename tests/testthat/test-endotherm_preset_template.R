@@ -56,3 +56,8 @@ test_that("extending a custom table (presets =) keeps its existing columns", {
   expect_identical(names(second)[(ncol(second) - 1):ncol(second)], c("Elk - Winter", "Elk - Summer"))
   expect_identical(second[["Elk - Summer"]][1], "Elk - Winter")
 })
+
+test_that("new_species differing only by case from an existing column is refused", {
+  expect_error(endotherm_preset_template("female bighorn - winter"),
+               "differs only by case from existing species 'Female Bighorn - Winter'")
+})

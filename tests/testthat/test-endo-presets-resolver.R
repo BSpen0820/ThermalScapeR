@@ -96,6 +96,44 @@ test_that(".endo_read_csv reads a UTF-8 BOM file written by Excel", {
   expect_true(is.na(tbl$Root[1]))
 })
 
+write_cp1252_preset_csv <- function(path) {
+  sp <- "Élan - Winter"
+  tbl <- endotherm_preset_template(sp, base_species = "Female Bighorn - Winter")
+  tbl[[sp]][tbl$param == "animal.species_label"] <- "Élan"
+  tbl[[sp]][tbl$param == "animal.body_mass"] <- "123"
+  utf8 <- tempfile(fileext = ".csv")
+  on.exit(unlink(utf8), add = TRUE)
+  utils::write.csv(tbl, utf8, row.names = FALSE, na = "", fileEncoding = "UTF-8")
+  lines <- readLines(utf8, warn = FALSE, encoding = "UTF-8")
+  bytes <- iconv(paste0(paste(lines, collapse = "\r\n"), "\r\n"),
+                 from = "UTF-8", to = "CP1252", toRaw = TRUE)[[1]]
+  writeBin(bytes, path)
+  sp
+}
+
+test_that("a CP1252 (Excel 'CSV', not 'CSV UTF-8') presets file warns and loses no data", {
+  path <- tempfile(fileext = ".csv")
+  on.exit(unlink(path), add = TRUE)
+  sp <- write_cp1252_preset_csv(path)
+  expect_false(all(validUTF8(readLines(path, warn = FALSE))))
+  expect_warning(d <- get_endotherm_defaults(sp, presets = path), "UTF-8")
+  expect_equal(d$animal$body_mass, 123)
+  expect_equal(d$animal$species_label, "Élan")
+  expect_warning(sps <- list_endotherm_species(presets = path), "UTF-8")
+  expect_true(sp %in% sps)
+})
+
+test_that("a UTF-8 presets file with a non-ASCII name reads with no warning", {
+  path <- tempfile(fileext = ".csv")
+  on.exit(unlink(path), add = TRUE)
+  sp <- "Élan - Winter"
+  tbl <- endotherm_preset_template(sp, base_species = "Female Bighorn - Winter")
+  tbl[[sp]][tbl$param == "animal.body_mass"] <- "123"
+  utils::write.csv(tbl, path, row.names = FALSE, na = "", fileEncoding = "UTF-8")
+  expect_no_warning(d <- get_endotherm_defaults(sp, presets = path))
+  expect_equal(d$animal$body_mass, 123)
+})
+
 test_that(".endo_set_path builds nested lists and .endo_insert_after keeps order", {
   expect_identical(.endo_set_path(list(), c("a", "b", "c"), 1), list(a = list(b = list(c = 1))))
   expect_identical(.endo_insert_after(list(x = 1, z = 3), "x", "y", 2), list(x = 1, y = 2, z = 3))
@@ -131,4 +169,12 @@ test_that(".endo_add_derived inserts derived fields in the legacy positions", {
   expect_identical(names(res$physiology),
                    c("core_temp_target", "core_temp_by_julday_enabled",
                      "core_temp_target_by_julday", "core_skin_temp_diff_min"))
+})
+
+test_that("a case-insensitive match to several species is reported as ambiguous", {
+  t <- toy_presets()
+  t$grand <- NA_character_
+  expect_identical(.endo_match_species("Grand", setdiff(names(t), .endo_reserved_cols)), "Grand")
+  expect_error(.endo_match_species("GRAND", setdiff(names(t), .endo_reserved_cols)),
+               "ambiguous.*'Grand'.*'grand'")
 })

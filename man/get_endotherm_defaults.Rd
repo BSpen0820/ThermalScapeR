@@ -7,7 +7,7 @@
 get_endotherm_defaults(
   species = "Female Bighorn - Winter",
   julnum = 12,
-  juldays = .endo_default_juldays,
+  juldays = c(15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349),
   presets = NULL
 )
 }

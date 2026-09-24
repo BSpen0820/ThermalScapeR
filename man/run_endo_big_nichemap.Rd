@@ -82,7 +82,9 @@ need not be pre-built at any particular julnum.}
 \item{time_varying}{Named list from \code{\link{endo_timevar_template}},
 with whichever fields should vary over the sim window overwritten with a
 vector of length equal to the sim window's day count. Default (all
-\code{NULL}) applies no overrides.}
+\code{NULL}) applies no overrides. A name not in
+\code{endo_timevar_template()} (e.g. a pre-rename name such as
+\code{mass2}) is an error, raised before any input is read.}
 
 \item{chunk_size}{Integer, 1-52. The exe's per-invocation day limit is 52;
 longer sim windows are split into this many days per chunk (the last

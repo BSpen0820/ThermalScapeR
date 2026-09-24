@@ -174,10 +174,10 @@ script exactly.
 }
 
 The abbreviated pre-rename field names (for example \code{mass} or
-\code{tcreg}) are no longer recognised. Because each group list is merged
-onto the defaults, an unrecognised field name is silently ignored and the
-default value is written instead, so scripts written against the old names
-must be updated using the old -> new tables below.
+\code{tcreg}) are no longer recognised. Any unrecognised field name (in any
+group, including nested \code{parts}) is an error that lists every unknown
+\code{group.field} path with the closest valid name, so scripts written
+against the old names must be updated using the old -> new tables below.
 
 Field names use readable snake_case; the abbreviated names used by the
 NicheMapR Endotherm script map as follows (field meanings match the column

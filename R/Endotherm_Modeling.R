@@ -783,6 +783,21 @@ plot.metchamber_result <- function(x, ...) {
                                "hibernate_enabled", "hibernation_day_frac",
                                "active_land_or_water", "inactive_land_or_water")
 
+.endo_validate_timevar_names <- function(time_varying) {
+  valid <- names(endo_timevar_template())
+  nms <- names(time_varying)
+  if (length(time_varying) && (is.null(nms) || any(is.na(nms) | !nzchar(nms))))
+    stop("every element of time_varying must be named (see endo_timevar_template())")
+  bad <- setdiff(nms, valid)
+  if (length(bad)) {
+    hints <- vapply(bad, function(b) sprintf("%s (did you mean %s?)", b, .endo_closest(b, valid)),
+                    character(1))
+    stop(sprintf("Unknown time_varying name(s): %s. Valid names are those of endo_timevar_template().",
+                 paste(hints, collapse = ", ")))
+  }
+  invisible(TRUE)
+}
+
 .endo_validate_timevar_lengths <- function(time_varying, n_days) {
   for (nm in names(time_varying)) {
     v <- time_varying[[nm]]
@@ -1257,7 +1272,9 @@ plot.metchamber_result <- function(x, ...) {
 #' @param time_varying Named list from \code{\link{endo_timevar_template}},
 #'   with whichever fields should vary over the sim window overwritten with a
 #'   vector of length equal to the sim window's day count. Default (all
-#'   \code{NULL}) applies no overrides.
+#'   \code{NULL}) applies no overrides. A name not in
+#'   \code{endo_timevar_template()} (e.g. a pre-rename name such as
+#'   \code{mass2}) is an error, raised before any input is read.
 #' @param chunk_size Integer, 1-52. The exe's per-invocation day limit is 52;
 #'   longer sim windows are split into this many days per chunk (the last
 #'   chunk may be shorter). Default \code{52}.
@@ -1355,6 +1372,8 @@ run_endo_big_nichemap <- function(tile_map, valid_cells_mask, dates, microclim_d
       max_attempts != as.integer(max_attempts))
     stop("max_attempts must be a single positive integer")
   max_attempts <- as.integer(max_attempts)
+
+  .endo_validate_timevar_names(time_varying)
 
   date_ranges <- .normalize_dates_with_sim_window(dates)
 

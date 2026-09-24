@@ -213,10 +213,12 @@ NULL
 #'
 #' Long-format table of NicheMapR Endotherm model input parameters. One row per
 #' parameter, one column per species/season preset. Read by
-#' \code{\link{get_endotherm_defaults}}; extend it by editing
-#' \code{data-raw/endotherm_species_presets.csv} and re-running
-#' \code{data-raw/endotherm_species_presets.R}, or supply your own table via
-#' \code{\link{endotherm_preset_template}}.
+#' \code{\link{get_endotherm_defaults}}. To add a species, generate an
+#' extended copy with \code{\link{endotherm_preset_template}}, fill it in, and
+#' pass the CSV to \code{get_endotherm_defaults(presets = )}. (Package
+#' developers: the built-in table is rebuilt from
+#' \code{data-raw/endotherm_species_presets.csv} by
+#' \code{data-raw/endotherm_species_presets.R}.)
 #'
 #' @format A data.frame with columns \code{param} (dotted path, e.g.
 #'   \code{animal.body_mass}), \code{type} (\code{"numeric"} or

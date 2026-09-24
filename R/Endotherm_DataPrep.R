@@ -199,10 +199,10 @@ endo_timevar_template <- function() {
 #' }
 #'
 #' The abbreviated pre-rename field names (for example \code{mass} or
-#' \code{tcreg}) are no longer recognised. Because each group list is merged
-#' onto the defaults, an unrecognised field name is silently ignored and the
-#' default value is written instead, so scripts written against the old names
-#' must be updated using the old -> new tables below.
+#' \code{tcreg}) are no longer recognised. Any unrecognised field name (in any
+#' group, including nested \code{parts}) is an error that lists every unknown
+#' \code{group.field} path with the closest valid name, so scripts written
+#' against the old names must be updated using the old -> new tables below.
 #'
 #' Field names use readable snake_case; the abbreviated names used by the
 #' NicheMapR Endotherm script map as follows (field meanings match the column
@@ -483,7 +483,18 @@ write_endotherm_inputs <- function(output_dir,
   .chk_vec_len(ms0$juldays, julnum, "model_settings$juldays")
 
   base <- .endo_baseline(julnum, ms0$juldays)
-  ms <- utils::modifyList(base$model_settings, model_settings)
+  caller <- list(model_settings = model_settings, animal = animal, fur = fur,
+                 physiology = physiology, diet = diet, thermoreg = thermoreg,
+                 flying_digging = flying_digging, nest_shelter = nest_shelter,
+                 allometry = allometry)
+  unknown <- unlist(lapply(names(caller), function(g)
+    .endo_check_unknown_fields(caller[[g]], base[[g]], g)))
+  if (length(unknown))
+    stop(sprintf("Unknown field(s) in write_endotherm_inputs(): %s",
+                 paste(unknown, collapse = ", ")))
+  rm(caller)
+
+  ms <-utils::modifyList(base$model_settings, model_settings)
   an <- utils::modifyList(base$animal, animal)
   fr <- utils::modifyList(base$fur, fur)
   ph <- utils::modifyList(base$physiology, physiology)

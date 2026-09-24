@@ -46,3 +46,21 @@ test_that("overriding a smaller-julnum defaults object uses its own julnum", {
   out <- override_endotherm_defaults(d, diet.food_fat_frac = 0.1)
   expect_length(out$diet$food_fat_frac, 6)
 })
+
+test_that("duplicate override paths are an error", {
+  d <- get_endotherm_defaults()
+  expect_error(override_endotherm_defaults(d, animal.body_mass = 1, animal.body_mass = 2),
+               "duplicate.*animal.body_mass")
+})
+
+test_that("non-finite numeric and NA character overrides are errors naming the path", {
+  d <- get_endotherm_defaults()
+  expect_error(override_endotherm_defaults(d, animal.body_mass = NA_real_),
+               "animal.body_mass.*finite")
+  expect_error(override_endotherm_defaults(d, animal.body_mass = Inf),
+               "animal.body_mass.*finite")
+  expect_error(override_endotherm_defaults(d, diet.food_fat_frac = c(rep(0.1, 11), NaN)),
+               "diet.food_fat_frac.*finite")
+  expect_error(override_endotherm_defaults(d, animal.species_label = NA_character_),
+               "animal.species_label.*NA")
+})
