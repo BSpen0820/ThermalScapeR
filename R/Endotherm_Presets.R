@@ -271,3 +271,93 @@ get_endotherm_defaults <- function(species = "Female Bighorn - Winter",
 list_endotherm_species <- function(presets = NULL) {
   setdiff(names(.endo_read_presets(presets)), .endo_reserved_cols)
 }
+
+.endo_get_path <- function(lst, path) {
+  for (p in path) lst <- lst[[p]]
+  lst
+}
+
+.endo_flatten <- function(x, prefix = "") {
+  out <- list()
+  for (nm in names(x)) {
+    path <- if (nzchar(prefix)) paste(prefix, nm, sep = ".") else nm
+    if (is.list(x[[nm]])) {
+      out <- c(out, .endo_flatten(x[[nm]], path))
+    } else {
+      out[[path]] <- x[[nm]]
+    }
+  }
+  out
+}
+
+#' Override several fields of an Endotherm defaults list at once
+#'
+#' Changes any number of fields of a \code{\link{get_endotherm_defaults}} list
+#' in one call, addressing each field by its dotted \code{group.field} path.
+#'
+#' @param defaults A list from \code{\link{get_endotherm_defaults}}.
+#' @param ... Named overrides. Each name is a dotted path to a field, e.g.
+#'   \code{animal.body_mass = 60}, \code{diet.food_fat_frac = 0.05},
+#'   \code{fur.parts.leg.fur_depth_dorsal = 8}.
+#'
+#' @return The updated list, in the same 9-group shape.
+#'
+#' @details
+#' A scalar field takes a single value of the same type (numeric or
+#' character). A per-julian-day field (length \code{julnum}) takes either one
+#' value, which is repeated, or exactly \code{julnum} values. Overrides are
+#' applied exactly as named, with no syncing of related fields: setting
+#' \code{animal.body_mass} does not change \code{animal.mass_by_julday}, which is
+#' only used when \code{animal.mass_by_julday_enabled} is 1; and when
+#' \code{fur.per_part_fur_enabled} is 0 the writer ignores \code{fur.parts.*}, so
+#' override the whole-body \code{fur.*} field instead. \code{julnum} and
+#' \code{juldays} cannot be overridden here; pass them to
+#' \code{get_endotherm_defaults()}. An unknown path is an error that lists the
+#' closest valid paths.
+#'
+#' @examples
+#' \dontrun{
+#'   d <- get_endotherm_defaults()
+#'   d <- override_endotherm_defaults(d, animal.body_mass = 60,
+#'                                    diet.food_fat_frac = 0.05)
+#' }
+#'
+#' @seealso \code{\link{get_endotherm_defaults}}, \code{\link{write_endotherm_inputs}}
+#' @export
+override_endotherm_defaults <- function(defaults, ...) {
+  overrides <- list(...)
+  if (length(overrides) == 0L) return(defaults)
+  if (is.null(names(overrides)) || any(!nzchar(names(overrides))))
+    stop("every override must be named with a dotted path, e.g. animal.body_mass = 60")
+
+  valid_paths <- names(.endo_flatten(defaults))
+  for (path in names(overrides)) {
+    if (path %in% c("model_settings.julnum", "model_settings.juldays"))
+      stop(sprintf("'%s' cannot be overridden; pass julnum/juldays to get_endotherm_defaults()", path))
+    if (!path %in% valid_paths) {
+      near <- utils::head(valid_paths[order(as.vector(utils::adist(path, valid_paths)))], 3L)
+      stop(sprintf("Unknown parameter path '%s'. Closest: %s", path,
+                   paste(sprintf("'%s'", near), collapse = ", ")))
+    }
+    steps <- strsplit(path, ".", fixed = TRUE)[[1]]
+    current <- .endo_get_path(defaults, steps)
+    value <- overrides[[path]]
+
+    if (is.character(current) && !is.character(value))
+      stop(sprintf("'%s' must be character", path))
+    if (!is.character(current) && !is.numeric(value))
+      stop(sprintf("'%s' must be numeric", path))
+
+    if (length(current) == 1L) {
+      if (length(value) != 1L)
+        stop(sprintf("'%s' must have length 1, got %d", path, length(value)))
+    } else if (length(value) == 1L) {
+      value <- rep(value, length(current))
+    } else if (length(value) != length(current)) {
+      stop(sprintf("'%s' must have length 1 or length %d, got %d",
+                   path, length(current), length(value)))
+    }
+    defaults <- .endo_set_path(defaults, steps, value)
+  }
+  defaults
+}
