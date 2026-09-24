@@ -1,25 +1,25 @@
 test_that(".default_mc_overrides returns the fixed 5-group override table", {
   ov <- .default_mc_overrides()
   expect_named(ov, c("model_settings", "physiology", "diet", "thermoreg", "flying_digging"))
-  expect_equal(ov$model_settings$outout, "Y")
-  expect_equal(ov$model_settings$microin, "CSV")
-  expect_equal(ov$model_settings$outfile, "CSV")
-  expect_equal(ov$model_settings$strht, "N")
-  expect_equal(ov$physiology$sweat, "N")
-  expect_equal(ov$physiology$pilo, "N")
-  expect_equal(ov$diet$act, rep(1.0, 12))
-  expect_equal(ov$diet$repro, rep(0.0, 12))
-  expect_equal(ov$thermoreg$shdact, "Y")
-  expect_equal(ov$thermoreg$shdpost, "S")
-  expect_equal(ov$flying_digging$flight, "N")
+  expect_equal(ov$model_settings$output_file_enabled, "Y")
+  expect_equal(ov$model_settings$microclimate_input_format, "CSV")
+  expect_equal(ov$model_settings$output_file_format, "CSV")
+  expect_equal(ov$model_settings$stored_heat_enabled, "N")
+  expect_equal(ov$physiology$sweating_enabled, "N")
+  expect_equal(ov$physiology$piloerection_enabled, "N")
+  expect_equal(ov$diet$activity_basal_multiple, rep(1.0, 12))
+  expect_equal(ov$diet$reproduction_basal_multiple, rep(0.0, 12))
+  expect_equal(ov$thermoreg$active_in_shade_enabled, "Y")
+  expect_equal(ov$thermoreg$shade_posture, "S")
+  expect_equal(ov$flying_digging$flight_enabled, "N")
 })
 
 test_that(".mc_scenario_overrides sets standing scenarios active all day with real posture/temp", {
   endo_inputs <- get_endotherm_defaults()
   ov <- .mc_scenario_overrides("standing_variable", endo_inputs)
-  expect_equal(ov$diet$diurn, rep("Y", 12))
-  expect_equal(ov$diet$noct, rep("Y", 12))
-  expect_equal(ov$diet$crep, rep("Y", 12))
+  expect_equal(ov$diet$diurnal_enabled, rep("Y", 12))
+  expect_equal(ov$diet$nocturnal_enabled, rep("Y", 12))
+  expect_equal(ov$diet$crepuscular_enabled, rep("Y", 12))
   expect_equal(ov$physiology, list())
   expect_equal(ov$allometry, list())
 })
@@ -27,66 +27,66 @@ test_that(".mc_scenario_overrides sets standing scenarios active all day with re
 test_that(".mc_scenario_overrides sets curled scenarios inactive all day with forced posture 3", {
   endo_inputs <- get_endotherm_defaults()
   ov <- .mc_scenario_overrides("curled_variable", endo_inputs)
-  expect_equal(ov$diet$diurn, rep("N", 12))
-  expect_equal(ov$diet$noct, rep("N", 12))
-  expect_equal(ov$diet$crep, rep("N", 12))
-  expect_equal(ov$allometry$post3, "Y")
-  expect_equal(ov$allometry$post4, "N")
-  expect_equal(ov$allometry$slpstrt, 3)
-  expect_equal(ov$allometry$shdstrt, 3)
-  expect_equal(ov$allometry$endpost, 3)
+  expect_equal(ov$diet$diurnal_enabled, rep("N", 12))
+  expect_equal(ov$diet$nocturnal_enabled, rep("N", 12))
+  expect_equal(ov$diet$crepuscular_enabled, rep("N", 12))
+  expect_equal(ov$allometry$posture_3_enabled, "Y")
+  expect_equal(ov$allometry$posture_4_enabled, "N")
+  expect_equal(ov$allometry$sleep_start_posture, 3)
+  expect_equal(ov$allometry$shade_start_posture, 3)
+  expect_equal(ov$allometry$inactive_end_posture, 3)
   expect_equal(ov$physiology, list())
 })
 
 test_that(".mc_scenario_overrides narrows core temp to tcreg +/- 0.1 for constant scenarios", {
   endo_inputs <- get_endotherm_defaults()
-  tcreg <- endo_inputs$physiology$tcreg
+  tcreg <- endo_inputs$physiology$core_temp_target
   ov <- .mc_scenario_overrides("curled_constant", endo_inputs)
-  expect_equal(ov$physiology$tcmax, tcreg + 0.1)
-  expect_equal(ov$physiology$tcmin, tcreg - 0.1)
+  expect_equal(ov$physiology$core_temp_max, tcreg + 0.1)
+  expect_equal(ov$physiology$core_temp_min, tcreg - 0.1)
 
   ov2 <- .mc_scenario_overrides("standing_constant", endo_inputs)
-  expect_equal(ov2$physiology$tcmax, tcreg + 0.1)
-  expect_equal(ov2$physiology$tcmin, tcreg - 0.1)
+  expect_equal(ov2$physiology$core_temp_max, tcreg + 0.1)
+  expect_equal(ov2$physiology$core_temp_min, tcreg - 0.1)
   expect_equal(ov2$allometry, list())
 })
 
 test_that(".mc_scenario_overrides leaves tcmax/tcmin untouched for variable scenarios", {
   endo_inputs <- get_endotherm_defaults()
   ov <- .mc_scenario_overrides("standing_variable", endo_inputs)
-  expect_null(ov$physiology$tcmax)
-  expect_null(ov$physiology$tcmin)
+  expect_null(ov$physiology$core_temp_max)
+  expect_null(ov$physiology$core_temp_min)
 })
 
 test_that(".mc_target_rmr uses the user-supplied metabolic rate when usrmet is Y", {
   endo_inputs <- get_endotherm_defaults()
-  endo_inputs$animal$usrmet <- "Y"
-  endo_inputs$animal$met <- 42
+  endo_inputs$animal$user_metabolic_rate_enabled <- "Y"
+  endo_inputs$animal$metabolic_rate <- 42
   expect_equal(.mc_target_rmr(endo_inputs), 42)
 })
 
 test_that(".mc_target_rmr computes the allometric formula for a non-marsupial mammal", {
   endo_inputs <- get_endotherm_defaults()
-  endo_inputs$animal$usrmet <- "N"
-  endo_inputs$animal$class <- "MAMMAL"
-  endo_inputs$animal$marsup <- "N"
-  endo_inputs$animal$mass <- 56.6
+  endo_inputs$animal$user_metabolic_rate_enabled <- "N"
+  endo_inputs$animal$taxon_class <- "MAMMAL"
+  endo_inputs$animal$is_marsupial <- "N"
+  endo_inputs$animal$body_mass <- 56.6
   expect_equal(.mc_target_rmr(endo_inputs), (70 * 56.6 ^ 0.75) * (4.185 / (24 * 3.6)))
 })
 
 test_that(".mc_target_rmr computes the marsupial formula variant", {
   endo_inputs <- get_endotherm_defaults()
-  endo_inputs$animal$usrmet <- "N"
-  endo_inputs$animal$class <- "MAMMAL"
-  endo_inputs$animal$marsup <- "Y"
-  endo_inputs$animal$mass <- 10
+  endo_inputs$animal$user_metabolic_rate_enabled <- "N"
+  endo_inputs$animal$taxon_class <- "MAMMAL"
+  endo_inputs$animal$is_marsupial <- "Y"
+  endo_inputs$animal$body_mass <- 10
   expect_equal(.mc_target_rmr(endo_inputs), (2187 * 10 ^ 0.737) * (4.185 / 3600))
 })
 
 test_that(".mc_target_rmr warns and returns NA for a non-MAMMAL class", {
   endo_inputs <- get_endotherm_defaults()
-  endo_inputs$animal$usrmet <- "N"
-  endo_inputs$animal$class <- "BIRDIE"
+  endo_inputs$animal$user_metabolic_rate_enabled <- "N"
+  endo_inputs$animal$taxon_class <- "BIRDIE"
   expect_warning(result <- .mc_target_rmr(endo_inputs), "MAMMAL")
   expect_true(is.na(result))
 })

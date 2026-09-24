@@ -93,8 +93,8 @@ test_that("run_metabolic_chamber computes target_rmr before running any scenario
   on.exit(unlink(fake_exe))
 
   bad_inputs <- get_endotherm_defaults()
-  bad_inputs$animal$usrmet <- "N"
-  bad_inputs$animal$class <- "BIRDIE"
+  bad_inputs$animal$user_metabolic_rate_enabled <- "N"
+  bad_inputs$animal$taxon_class <- "BIRDIE"
 
   events <- character(0)
   testthat::local_mocked_bindings(

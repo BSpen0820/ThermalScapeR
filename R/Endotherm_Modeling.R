@@ -386,14 +386,21 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 
 .default_mc_overrides <- function() {
   list(
-    model_settings = list(outout = "Y", microin = "CSV", outfile = "CSV", strht = "N"),
-    physiology     = list(sweat = "N", pilo = "N"),
-    diet           = list(act = rep(1.0, 12), repro = rep(0.0, 12)),
-    thermoreg      = list(burrow = "N", nest = "N", climb = "N", shdseek = "N",
-                           dive = "N", wind = "N", niteshd = "N", dive2 = "N",
-                           shdact = "Y", shdpost = "S", treeslp = "N", hudl = "N",
-                           tcconcur = "N", tcconcur2 = "N"),
-    flying_digging = list(flight = "N", foss = "N", dig = "N", arb = "N")
+    model_settings = list(output_file_enabled = "Y", microclimate_input_format = "CSV",
+                          output_file_format = "CSV", stored_heat_enabled = "N"),
+    physiology     = list(sweating_enabled = "N", piloerection_enabled = "N"),
+    diet           = list(activity_basal_multiple = rep(1.0, 12),
+                          reproduction_basal_multiple = rep(0.0, 12)),
+    thermoreg      = list(burrow_enabled = "N", nest_thermoreg_enabled = "N",
+                          climb_enabled = "N", shade_seeking_enabled = "N",
+                          dive_cooling_enabled = "N", wind_seeking_enabled = "N",
+                          night_shade_enabled = "N", dive_option_enabled = "N",
+                          active_in_shade_enabled = "Y", shade_posture = "S",
+                          tree_sleep_enabled = "N", huddle_enabled = "N",
+                          concurrent_core_temp_increase_enabled = "N",
+                          concurrent_core_temp_decrease_enabled = "N"),
+    flying_digging = list(flight_enabled = "N", fossorial_enabled = "N",
+                          digging_enabled = "N", arboreal_enabled = "N")
   )
 }
 
@@ -401,20 +408,22 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
   active <- if (grepl("^standing", scenario_id)) "Y" else "N"
 
   posture <- if (grepl("^curled", scenario_id)) {
-    list(post3 = "Y", post4 = "N", slpstrt = 3, shdstrt = 3, endpost = 3)
+    list(posture_3_enabled = "Y", posture_4_enabled = "N", sleep_start_posture = 3,
+         shade_start_posture = 3, inactive_end_posture = 3)
   } else {
     list()
   }
 
   temp <- if (grepl("constant$", scenario_id)) {
-    tcreg <- endo_inputs$physiology$tcreg
-    list(tcmax = tcreg + 0.1, tcmin = tcreg - 0.1)
+    tcreg <- endo_inputs$physiology$core_temp_target
+    list(core_temp_max = tcreg + 0.1, core_temp_min = tcreg - 0.1)
   } else {
     list()
   }
 
   list(
-    diet       = list(diurn = rep(active, 12), noct = rep(active, 12), crep = rep(active, 12)),
+    diet       = list(diurnal_enabled = rep(active, 12), nocturnal_enabled = rep(active, 12),
+                      crepuscular_enabled = rep(active, 12)),
     physiology = temp,
     allometry  = posture
   )
@@ -422,20 +431,20 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 
 .mc_target_rmr <- function(endo_inputs) {
   an <- endo_inputs$animal
-  if (identical(an$usrmet, "Y")) {
-    return(an$met)
+  if (identical(an$user_metabolic_rate_enabled, "Y")) {
+    return(an$metabolic_rate)
   }
-  if (!identical(an$class, "MAMMAL")) {
+  if (!identical(an$taxon_class, "MAMMAL")) {
     warning(sprintf(
       "target RMR formula is only implemented for class 'MAMMAL' (got '%s'); target_rmr$trgt will be NA",
-      an$class
+      an$taxon_class
     ))
     return(NA_real_)
   }
-  if (identical(an$marsup, "Y")) {
-    (2187 * an$mass ^ 0.737) * (4.185 / 3600)
+  if (identical(an$is_marsupial, "Y")) {
+    (2187 * an$body_mass ^ 0.737) * (4.185 / 3600)
   } else {
-    (70 * an$mass ^ 0.75) * (4.185 / (24 * 3.6))
+    (70 * an$body_mass ^ 0.75) * (4.185 / (24 * 3.6))
   }
 }
 
@@ -516,13 +525,21 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 #' @details
 #' Every scenario always applies this fixed override table on top of
 #' \code{endo_inputs} (before \code{mc_overrides} or scenario-specific
-#' fields): \code{model_settings} \code{outout/microin/outfile = "Y"/"CSV"/"CSV"},
-#' \code{strht = "N"}; \code{physiology} \code{sweat/pilo = "N"};
-#' \code{diet} \code{act = rep(1.0, 12)}, \code{repro = rep(0.0, 12)};
-#' \code{thermoreg} \code{burrow/nest/climb/shdseek/dive/wind/niteshd/dive2 =
-#' "N"}, \code{shdact = "Y"}, \code{shdpost = "S"}, \code{treeslp/hudl/
-#' tcconcur/tcconcur2 = "N"}; \code{flying_digging}
-#' \code{flight/foss/dig/arb = "N"}. If a scenario's exe run fails, a
+#' fields): \code{model_settings} \code{output_file_enabled/
+#' microclimate_input_format/output_file_format = "Y"/"CSV"/"CSV"},
+#' \code{stored_heat_enabled = "N"}; \code{physiology}
+#' \code{sweating_enabled/piloerection_enabled = "N"}; \code{diet}
+#' \code{activity_basal_multiple = rep(1.0, 12)},
+#' \code{reproduction_basal_multiple = rep(0.0, 12)}; \code{thermoreg}
+#' \code{burrow_enabled/nest_thermoreg_enabled/climb_enabled/
+#' shade_seeking_enabled/dive_cooling_enabled/wind_seeking_enabled/
+#' night_shade_enabled/dive_option_enabled = "N"},
+#' \code{active_in_shade_enabled = "Y"}, \code{shade_posture = "S"},
+#' \code{tree_sleep_enabled/huddle_enabled/
+#' concurrent_core_temp_increase_enabled/
+#' concurrent_core_temp_decrease_enabled = "N"}; \code{flying_digging}
+#' \code{flight_enabled/fossorial_enabled/digging_enabled/arboreal_enabled = "N"}.
+#' If a scenario's exe run fails, a
 #' \code{warning()} is issued and that scenario is omitted from
 #' \code{$hourplot} (recorded as a failure in \code{$log}); the function only
 #' \code{stop()}s if every requested scenario fails.
@@ -555,7 +572,7 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
 
   if (!is.null(endo_inputs$model_settings$julnum) && endo_inputs$model_settings$julnum != 12) {
     message(sprintf(
-      "run_metabolic_chamber() always uses julnum = 12 (tied to the bundled temperature-ramp data) - overriding endo_inputs$model_settings$julnum (%d). If endo_inputs' other per-julnum vectors (e.g. animal$mass2) were sized to a different julnum, rebuild endo_inputs with julnum = 12 (e.g. get_endotherm_defaults(julnum = 12)) to avoid a length-mismatch error below.",
+      "run_metabolic_chamber() always uses julnum = 12 (tied to the bundled temperature-ramp data) - overriding endo_inputs$model_settings$julnum (%d). If endo_inputs' other per-julnum vectors (e.g. animal$mass_by_julday) were sized to a different julnum, rebuild endo_inputs with julnum = 12 (e.g. get_endotherm_defaults(julnum = 12)) to avoid a length-mismatch error below.",
       endo_inputs$model_settings$julnum
     ))
   }
@@ -675,7 +692,7 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
     list(
       hourplot   = hourplot,
       dimensions = dimensions,
-      target_rmr = list(trgt = target_rmr_trgt, err = endo_inputs$model_settings$err),
+      target_rmr = list(trgt = target_rmr_trgt, err = endo_inputs$model_settings$thermoreg_trigger_tolerance),
       log        = log_df
     ),
     class = "metchamber_result"
@@ -754,13 +771,17 @@ plot.metchamber_result <- function(x, ...) {
 #  Internal helpers for run_endo_big_nichemap
 # --------------------------------------------------------------------------- #
 
-# Fields sharing fur$tmdptorfur - supplying any one forces all four to vector mode.
-.endo_torfur_fields <- c("torlend", "torlenv", "tordepd", "tordepv")
+# Fields sharing fur$torso_fur_by_julday_enabled - supplying any one forces all four to vector mode.
+.endo_torfur_fields <- c("torso_hair_length_dorsal_by_julday", "torso_hair_length_ventral_by_julday",
+                         "torso_fur_depth_dorsal_by_julday", "torso_fur_depth_ventral_by_julday")
 
 # Always-vector diet fields with no toggle - name matches endo_inputs$diet[[name]] directly.
-.endo_diet_timevar_fields <- c("digef", "act", "repro", "prtn", "fat", "carb",
-                               "dry", "diurn", "noct", "crep", "hibrn", "hibfrac",
-                               "land", "land2")
+.endo_diet_timevar_fields <- c("digestive_efficiency", "activity_basal_multiple",
+                               "reproduction_basal_multiple", "food_protein_frac",
+                               "food_fat_frac", "food_carb_frac", "food_dry_matter_frac",
+                               "diurnal_enabled", "nocturnal_enabled", "crepuscular_enabled",
+                               "hibernate_enabled", "hibernation_day_frac",
+                               "active_land_or_water", "inactive_land_or_water")
 
 .endo_validate_timevar_lengths <- function(time_varying, n_days) {
   for (nm in names(time_varying)) {
@@ -774,22 +795,22 @@ plot.metchamber_result <- function(x, ...) {
 }
 
 .endo_apply_timevar <- function(endo_inputs, time_varying, chunk_idx) {
-  if (!is.null(time_varying$mass2)) {
-    endo_inputs$animal$timdepmass <- 1
-    endo_inputs$animal$mass2 <- time_varying$mass2[chunk_idx]
+  if (!is.null(time_varying$mass_by_julday)) {
+    endo_inputs$animal$mass_by_julday_enabled <- 1
+    endo_inputs$animal$mass_by_julday <- time_varying$mass_by_julday[chunk_idx]
   }
-  if (!is.null(time_varying$fatpct2)) {
-    endo_inputs$animal$timdepfat <- 1
-    endo_inputs$animal$fatpct2 <- time_varying$fatpct2[chunk_idx]
+  if (!is.null(time_varying$body_fat_pct_by_julday)) {
+    endo_inputs$animal$body_fat_pct_by_julday_enabled <- 1
+    endo_inputs$animal$body_fat_pct_by_julday <- time_varying$body_fat_pct_by_julday[chunk_idx]
   }
-  if (!is.null(time_varying$tcreg2)) {
-    endo_inputs$physiology$tmdptc <- 1
-    endo_inputs$physiology$tcreg2 <- time_varying$tcreg2[chunk_idx]
+  if (!is.null(time_varying$core_temp_target_by_julday)) {
+    endo_inputs$physiology$core_temp_by_julday_enabled <- 1
+    endo_inputs$physiology$core_temp_target_by_julday <- time_varying$core_temp_target_by_julday[chunk_idx]
   }
 
   is_torfur_supplied <- !vapply(time_varying[.endo_torfur_fields], is.null, logical(1))
   if (any(is_torfur_supplied)) {
-    endo_inputs$fur$tmdptorfur <- 1
+    endo_inputs$fur$torso_fur_by_julday_enabled <- 1
     n_days <- length(time_varying[[.endo_torfur_fields[which(is_torfur_supplied)[1]]]])
     for (fld in .endo_torfur_fields) {
       if (!is.null(time_varying[[fld]])) {
@@ -827,9 +848,12 @@ plot.metchamber_result <- function(x, ...) {
 }
 
 .endo_resize_static_fields <- function(endo_inputs, julnum) {
-  endo_inputs$animal$mass2      <- .endo_resize_static_field(endo_inputs$animal$mass2, julnum)
-  endo_inputs$animal$fatpct2    <- .endo_resize_static_field(endo_inputs$animal$fatpct2, julnum)
-  endo_inputs$physiology$tcreg2 <- .endo_resize_static_field(endo_inputs$physiology$tcreg2, julnum)
+  endo_inputs$animal$mass_by_julday <-
+    .endo_resize_static_field(endo_inputs$animal$mass_by_julday, julnum)
+  endo_inputs$animal$body_fat_pct_by_julday <-
+    .endo_resize_static_field(endo_inputs$animal$body_fat_pct_by_julday, julnum)
+  endo_inputs$physiology$core_temp_target_by_julday <-
+    .endo_resize_static_field(endo_inputs$physiology$core_temp_target_by_julday, julnum)
   for (fld in .endo_torfur_fields)
     endo_inputs$fur[[fld]] <- .endo_resize_static_field(endo_inputs$fur[[fld]], julnum)
   for (fld in .endo_diet_timevar_fields)
