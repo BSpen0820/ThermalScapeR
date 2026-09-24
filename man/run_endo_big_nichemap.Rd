@@ -72,8 +72,9 @@ same prefix. Ignored on Windows.}
 \item{endo_inputs}{Named list in \code{\link{get_endotherm_defaults}}'s
 9-group shape - the animal model. Default \code{get_endotherm_defaults()}.
 Its julnum-length fields not overridden via \code{time_varying}
-(\code{animal$mass2}/\code{fatpct2}, \code{physiology$tcreg2}, the four
-torso-fur fields, and every \code{diet} vector field) are re-sized to
+(\code{animal$mass_by_julday}/\code{body_fat_pct_by_julday},
+\code{physiology$core_temp_target_by_julday}, the four torso-fur
+\code{*_by_julday} fields, and every \code{diet} vector field) are re-sized to
 each chunk's own julnum (from their first element) before
 \code{\link{write_endotherm_inputs}} is called, so \code{endo_inputs}
 need not be pre-built at any particular julnum.}

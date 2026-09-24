@@ -17,8 +17,8 @@ string not already in the table. This is the string later passed as
 \code{species =}.}
 
 \item{base_species}{Optional name of an existing preset in \code{presets}
-that the new column inherits from. Set, the new column starts blank and only
-the parameters that differ need to be filled in. \code{NULL} makes the new
+that the new column inherits from. When set, the new column starts blank
+and only the parameters that differ need to be filled in. \code{NULL} makes the new
 column a root, which must then be filled in completely.}
 
 \item{presets}{\code{NULL} (default) for the built-in table, or a data.frame /

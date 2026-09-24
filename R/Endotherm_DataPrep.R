@@ -13,19 +13,27 @@
 #'
 #' @return A named list of 21 elements, all \code{NULL}:
 #'   \describe{
-#'     \item{Toggle-gated}{\code{mass2}, \code{fatpct2}, \code{tcreg2}
-#'       (each backed by a static scalar + a \code{timdep*}/\code{tmdp*} flag
+#'     \item{Toggle-gated}{\code{mass_by_julday},
+#'       \code{body_fat_pct_by_julday}, \code{core_temp_target_by_julday}
+#'       (each backed by a static scalar + a \code{*_by_julday_enabled} flag
 #'       elsewhere in \code{\link{get_endotherm_defaults}}'s output - see
-#'       \code{\link{write_endotherm_inputs}}); \code{torlend}, \code{torlenv},
-#'       \code{tordepd}, \code{tordepv} (torso hair length/fur depth,
+#'       \code{\link{write_endotherm_inputs}});
+#'       \code{torso_hair_length_dorsal_by_julday},
+#'       \code{torso_hair_length_ventral_by_julday},
+#'       \code{torso_fur_depth_dorsal_by_julday},
+#'       \code{torso_fur_depth_ventral_by_julday} (torso hair length/fur depth,
 #'       dorsal/ventral - these four share a single flag,
-#'       \code{fur$tmdptorfur}: supplying any one of them makes
+#'       \code{fur$torso_fur_by_julday_enabled}: supplying any one of them makes
 #'       \code{\link{run_endo_big_nichemap}} treat all four as vectors,
 #'       backfilling the ones you didn't supply with their static value).}
-#'     \item{Always-vector}{\code{digef}, \code{act}, \code{repro},
-#'       \code{prtn}, \code{fat}, \code{carb}, \code{dry}, \code{diurn},
-#'       \code{noct}, \code{crep}, \code{hibrn}, \code{hibfrac}, \code{land},
-#'       \code{land2} - already per-julday vectors by design in
+#'     \item{Always-vector}{\code{digestive_efficiency},
+#'       \code{activity_basal_multiple}, \code{reproduction_basal_multiple},
+#'       \code{food_protein_frac}, \code{food_fat_frac}, \code{food_carb_frac},
+#'       \code{food_dry_matter_frac}, \code{diurnal_enabled},
+#'       \code{nocturnal_enabled}, \code{crepuscular_enabled},
+#'       \code{hibernate_enabled}, \code{hibernation_day_frac},
+#'       \code{active_land_or_water}, \code{inactive_land_or_water} - already
+#'       per-julday vectors by design in
 #'       \code{\link{get_endotherm_defaults}}'s \code{diet} group; no flag
 #'       is involved, a supplied vector simply overwrites the default
 #'       repeated-constant vector.}
@@ -60,55 +68,111 @@ endo_timevar_template <- function() {
 #'   because \code{Endo2022a.exe} hard-codes these names in its working
 #'   directory.
 #' @param model_settings Named list of simulation-level settings: \code{julnum,
-#'   juldays, hrout, outout, microin, outfile, outunits, depend, strht, geom,
-#'   geomult, apnd, ventpct, inccond, frcmpr, usralom, actht, err, acthrs,
-#'   minfrg, nrght, prdht, fasky, fagrd, faobj, usrnure, afrnt, bfrnt, aside,
-#'   bside}. \code{juldays} must have length \code{julnum}. \code{depend} is
-#'   \code{endo.dat}'s DEPEND value (default \code{2.5}, matching the
-#'   validated Female Bighorn Sheep baseline): if \code{2.0 < depend < 3.0},
-#'   metabolic output is total W; if \code{depend == 2.0}, it is W/kg.
-#' @param animal Named list of whole-animal properties: \code{species, class,
-#'   marsup, cp, mass, timdepmass, mass2, fatpct, timdepfat, fatpct2, subqfat,
-#'   density, usrmet, met}.
+#'   juldays, hourly_output_enabled, output_file_enabled,
+#'   microclimate_input_format, output_file_format, output_energy_units,
+#'   metabolic_output_mode, stored_heat_enabled, body_geometry,
+#'   geometry_axis_ratio, appendage_config, ventral_substrate_contact_frac,
+#'   substrate_conduction_enabled, fur_compression_frac, user_allometry_enabled,
+#'   activity_heat_enabled, thermoreg_trigger_tolerance, activity_hours_method,
+#'   forage_rate_min, activity_heat_fraction, production_heat_fraction,
+#'   ir_config_factor_sky, ir_config_factor_ground, ir_config_factor_objects,
+#'   user_nu_re_enabled, nu_re_front_a, nu_re_front_b, nu_re_side_a,
+#'   nu_re_side_b}. \code{juldays} must have length \code{julnum}.
+#'   \code{metabolic_output_mode} is \code{endo.dat}'s DEPEND value (default
+#'   \code{2.5}, matching the validated Female Bighorn Sheep baseline): if
+#'   \code{2.0 < metabolic_output_mode < 3.0}, metabolic output is total W; if
+#'   \code{metabolic_output_mode == 2.0}, it is W/kg.
+#' @param animal Named list of whole-animal properties: \code{species_label,
+#'   taxon_class, is_marsupial, specific_heat, body_mass,
+#'   mass_by_julday_enabled, mass_by_julday, body_fat_pct,
+#'   body_fat_pct_by_julday_enabled, body_fat_pct_by_julday,
+#'   subcutaneous_fat_enabled, body_density, user_metabolic_rate_enabled,
+#'   metabolic_rate}.
 #' @param fur Named list of fur/feather properties: whole-body defaults
-#'   (\code{varfur, diad, diav, lend, lenv, depd, depv, dend, denv, refld,
-#'   reflv}), a \code{parts} sub-list (\code{leg, head_neck, torso, tail}, each
-#'   with the same nine fields) used when \code{varfur = 1}, and
-#'   time-dependent torso fur (\code{tmdptorfur, torlend, torlenv, tordepd,
-#'   tordepv}).
+#'   (\code{per_part_fur_enabled, hair_diameter_dorsal, hair_diameter_ventral,
+#'   hair_length_dorsal, hair_length_ventral, fur_depth_dorsal,
+#'   fur_depth_ventral, hair_density_dorsal, hair_density_ventral,
+#'   reflectivity_dorsal, reflectivity_ventral}), a \code{parts} sub-list whose
+#'   elements (leg, head_neck, torso, tail for fur) each contain:
+#'   \code{hair_diameter_dorsal, hair_diameter_ventral, hair_length_dorsal,
+#'   hair_length_ventral, fur_depth_dorsal, fur_depth_ventral,
+#'   hair_density_dorsal, hair_density_ventral, reflectivity_dorsal,
+#'   reflectivity_ventral} used when \code{per_part_fur_enabled = 1}, and
+#'   time-dependent torso fur (\code{torso_fur_by_julday_enabled,
+#'   torso_hair_length_dorsal_by_julday, torso_hair_length_ventral_by_julday,
+#'   torso_fur_depth_dorsal_by_julday, torso_fur_depth_ventral_by_julday}).
 #' @param physiology Named list of core-temperature and heat-exchange
-#'   physiology: \code{tcreg, tcmin, tcmax, tchib, tmdptc, tcreg2, tctskdif,
-#'   texptair, sknwet, maxsknwet, sweat, pilo, maxpilo, flshk, flshkmin,
-#'   flshkmax, usrfurk, usrfurk2, radfurdep, o2max, o2min}.
+#'   physiology: \code{core_temp_target, core_temp_min, core_temp_max,
+#'   hibernation_core_temp, core_temp_by_julday_enabled,
+#'   core_temp_target_by_julday, core_skin_temp_diff_min,
+#'   exhaled_air_temp_offset, skin_wetness_pct, skin_wetness_max_pct,
+#'   sweating_enabled, piloerection_enabled, piloerection_max_pct,
+#'   flesh_conductivity, flesh_conductivity_min, flesh_conductivity_max,
+#'   user_fur_conductivity_enabled, user_fur_conductivity,
+#'   radiant_exchange_fur_depth_frac, o2_extraction_max_pct,
+#'   o2_extraction_min_pct}.
 #' @param diet Named list of diet, digestion, and daily activity/hibernation
-#'   schedule: \code{gut, fech2o, urea, digef, act, repro, prtn, fat, carb,
-#'   dry, diurn, noct, crep, hibrn, hibfrac, land, land2}. The vector fields
-#'   must have length \code{model_settings$julnum}.
+#'   schedule: \code{gut_passage_time_days, fecal_water_frac, urine_urea_frac,
+#'   digestive_efficiency, activity_basal_multiple, reproduction_basal_multiple,
+#'   food_protein_frac, food_fat_frac, food_carb_frac, food_dry_matter_frac,
+#'   diurnal_enabled, nocturnal_enabled, crepuscular_enabled, hibernate_enabled,
+#'   hibernation_day_frac, active_land_or_water, inactive_land_or_water}. The
+#'   vector fields must have length \code{model_settings$julnum}.
 #' @param thermoreg Named list of behavioral thermoregulation options:
-#'   \code{burrow, nest, climb, shdseek, dive, wind, niteshd, dive2, shdact,
-#'   shdpost, trord, burTR, wade, treeslp, slpcnpy, hudl, hudlnum, hudldrs,
-#'   hudlvnt, tcconcur, tcinc, tcwtr, o2inc, sknwtinc, tcconcur2, piloinc}.
+#'   \code{burrow_enabled, nest_thermoreg_enabled, climb_enabled,
+#'   shade_seeking_enabled, dive_cooling_enabled, wind_seeking_enabled,
+#'   night_shade_enabled, dive_option_enabled, active_in_shade_enabled,
+#'   shade_posture, behavior_first_enabled, burrow_nest_use_option,
+#'   wade_enabled, tree_sleep_enabled, tree_sleep_shade_pct, huddle_enabled,
+#'   huddle_group_size, huddle_contact_dorsal_frac, huddle_contact_ventral_frac,
+#'   concurrent_core_temp_increase_enabled, core_temp_change_increment,
+#'   core_temp_water_loss_trigger, o2_extraction_increment_pct,
+#'   skin_wetness_increment_pct, concurrent_core_temp_decrease_enabled,
+#'   piloerection_increment_frac}.
 #' @param flying_digging Named list of flight and burrowing/fossoriality
-#'   options: \code{flight, fltmetab, fltvel, fltload, foss, dig, nodes, arb,
-#'   buro2, burco2, burn2, soiltyp, burseg, burdep}.
+#'   options: \code{flight_enabled, flight_metabolic_rate, flight_velocity,
+#'   flight_load, fossorial_enabled, digging_enabled, fossorial_node,
+#'   arboreal_enabled, burrow_o2_pct, burrow_co2_pct, burrow_n2_pct, soil_type,
+#'   burrow_segment_length, burrow_depth}.
 #' @param nest_shelter Named list of nest/shelter geometry and use:
-#'   \code{shelter, nestuse, nestthk, nestk, nestno, nestloc, nestnode,
-#'   nestlength, outdiam, shltrefl, shltrans, shltdens, shltcp, nestheight,
-#'   shltnodes, noderadius}.
+#'   \code{shelter_type, nest_use_when_inactive_enabled, nest_wall_thickness,
+#'   nest_wall_conductivity, nest_occupants, nest_location, nest_soil_node,
+#'   shelter_length, shelter_outer_diameter, shelter_solar_reflectivity,
+#'   shelter_transient_enabled, shelter_material_density,
+#'   shelter_material_specific_heat, shelter_height_rel_ground,
+#'   shelter_node_count, shelter_node_radii}.
 #' @param allometry Named list used only to build \code{alomvars.dat}:
-#'   \code{group, loco}, a \code{parts} sub-list (\code{head, neck, torso,
-#'   front_leg, rear_leg, tail}, each with \code{diav, diah, len, dorsfur,
-#'   dorsfur_a, ventfur, ventfur_a, dens, geom}), \code{tail_type, absval,
-#'   absdim, adjdim}, per-part subcutaneous fat flags (\code{subq_head,
-#'   subq_neck, subq_torso, subq_front_leg, subq_rear_leg, subq_tail,
-#'   tmdpfat}), inactive postures (\code{post1, post2, post3, post4, slpstrt,
-#'   shdstrt, endpost}), per-part minimum flesh conductivity
-#'   (\code{akmin_head, akmin_neck, akmin_torso, akmin_front_leg,
-#'   akmin_rear_leg, akmin_tail, VTleg, VT6th, Grd6th}), leg-shading geometry
-#'   (\code{torsover, torsoff}), bird sleeping (\code{brdslp, brdslplg}), and
-#'   countercurrent exchange (\code{Tlegred, T6thred, Tcred1, Tcred2, Tfrac1,
-#'   Tfrac2, Tdif1, Tdif2, MinT, Tleginc, T6thinc}). Always written
-#'   regardless of \code{model_settings$usralom}, matching the source
+#'   \code{taxon_group, locomotion}, a \code{parts} sub-list whose elements
+#'   (head, neck, torso, front_leg, rear_leg, tail for allometry) each contain:
+#'   \code{diameter_vertical, diameter_horizontal, length,
+#'   fur_depth_dorsal_reference, fur_depth_dorsal_adjusted,
+#'   fur_depth_ventral_reference, fur_depth_ventral_adjusted, density,
+#'   geometry}, \code{sixth_appendage_type, absolute_measurement_cm,
+#'   absolute_measurement_type, dimension_adjustment}, per-part subcutaneous fat
+#'   flags (\code{subcutaneous_fat_head_enabled, subcutaneous_fat_neck_enabled,
+#'   subcutaneous_fat_torso_enabled, subcutaneous_fat_front_leg_enabled,
+#'   subcutaneous_fat_rear_leg_enabled, subcutaneous_fat_tail_enabled,
+#'   mass_change_source}), inactive postures (\code{posture_1_enabled,
+#'   posture_2_enabled, posture_3_enabled, posture_4_enabled,
+#'   sleep_start_posture, shade_start_posture, inactive_end_posture}), per-part
+#'   minimum flesh conductivity (\code{flesh_conductivity_min_head,
+#'   flesh_conductivity_min_neck, flesh_conductivity_min_torso,
+#'   flesh_conductivity_min_front_leg, flesh_conductivity_min_rear_leg,
+#'   flesh_conductivity_min_tail, variable_core_temp_legs_enabled,
+#'   variable_core_temp_sixth_appendage_enabled,
+#'   sixth_appendage_on_ground_enabled}), leg-shading geometry
+#'   (\code{torso_overhang, leg_vertical_offset}), bird sleeping
+#'   (\code{bird_sleep_standing_enabled, bird_sleep_leg_count}), and
+#'   countercurrent exchange (\code{core_temp_reduction_legs_enabled,
+#'   core_temp_reduction_sixth_appendage_enabled,
+#'   core_temp_reduction_legs_mode, core_temp_reduction_sixth_appendage_mode,
+#'   core_temp_reduction_legs_fraction,
+#'   core_temp_reduction_sixth_appendage_fraction,
+#'   core_temp_reduction_legs_difference,
+#'   core_temp_reduction_sixth_appendage_difference, appendage_temp_min,
+#'   leg_temp_increase_if_hot_enabled,
+#'   sixth_appendage_temp_increase_if_hot_enabled}). Always written
+#'   regardless of \code{model_settings$user_allometry_enabled}, matching the source
 #'   script's behavior.
 #' @param study_area Optional string recorded in the returned log only; it
 #'   does not prefix the output filenames (see \code{output_dir}).
@@ -123,16 +187,278 @@ endo_timevar_template <- function() {
 #' these fixed-format files by column position. Two quirks of the source
 #' script are preserved for fidelity rather than silently fixed:
 #' \itemize{
-#'   \item \code{thermoreg$tcinc} is used for both the sweating and
+#'   \item \code{thermoreg$core_temp_change_increment} is used for both the sweating and
 #'     piloerection concurrent-temperature-change increments (the source
 #'     script assigns two same-named variables, so only one value ever
 #'     reaches the file).
 #'   \item In \code{alomvars.dat}'s 6th-appendage (tail/proboscis) row, the
-#'     locomotion type (\code{allometry$loco}) is written a second time in
-#'     the column documented as tail-vs-proboscis type; \code{allometry$tail_type}
-#'     is accepted but not currently written anywhere, matching the source
+#'     locomotion type (\code{allometry$locomotion}) is written a second time
+#'     in the column documented as tail-vs-proboscis type;
+#'     \code{allometry$sixth_appendage_type} is accepted but not currently written anywhere, matching the source
 #'     script exactly.
 #' }
+#'
+#' The abbreviated pre-rename field names (for example \code{mass} or
+#' \code{tcreg}) are no longer recognised. Because each group list is merged
+#' onto the defaults, an unrecognised field name is silently ignored and the
+#' default value is written instead, so scripts written against the old names
+#' must be updated using the old -> new tables below.
+#'
+#' Field names use readable snake_case; the abbreviated names used by the
+#' NicheMapR Endotherm script map as follows (field meanings match the column
+#' headers written into \code{endo.dat}/\code{alomvars.dat}):
+#'
+#' \strong{model_settings}
+#'   \tabular{ll}{
+#'     \code{hrout} \tab \code{hourly_output_enabled} \cr
+#'     \code{outout} \tab \code{output_file_enabled} \cr
+#'     \code{microin} \tab \code{microclimate_input_format} \cr
+#'     \code{outfile} \tab \code{output_file_format} \cr
+#'     \code{outunits} \tab \code{output_energy_units} \cr
+#'     \code{depend} \tab \code{metabolic_output_mode} \cr
+#'     \code{strht} \tab \code{stored_heat_enabled} \cr
+#'     \code{geom} \tab \code{body_geometry} \cr
+#'     \code{geomult} \tab \code{geometry_axis_ratio} \cr
+#'     \code{apnd} \tab \code{appendage_config} \cr
+#'     \code{ventpct} \tab \code{ventral_substrate_contact_frac} \cr
+#'     \code{inccond} \tab \code{substrate_conduction_enabled} \cr
+#'     \code{frcmpr} \tab \code{fur_compression_frac} \cr
+#'     \code{usralom} \tab \code{user_allometry_enabled} \cr
+#'     \code{actht} \tab \code{activity_heat_enabled} \cr
+#'     \code{err} \tab \code{thermoreg_trigger_tolerance} \cr
+#'     \code{acthrs} \tab \code{activity_hours_method} \cr
+#'     \code{minfrg} \tab \code{forage_rate_min} \cr
+#'     \code{nrght} \tab \code{activity_heat_fraction} \cr
+#'     \code{prdht} \tab \code{production_heat_fraction} \cr
+#'     \code{fasky} \tab \code{ir_config_factor_sky} \cr
+#'     \code{fagrd} \tab \code{ir_config_factor_ground} \cr
+#'     \code{faobj} \tab \code{ir_config_factor_objects} \cr
+#'     \code{usrnure} \tab \code{user_nu_re_enabled} \cr
+#'     \code{afrnt} \tab \code{nu_re_front_a} \cr
+#'     \code{bfrnt} \tab \code{nu_re_front_b} \cr
+#'     \code{aside} \tab \code{nu_re_side_a} \cr
+#'     \code{bside} \tab \code{nu_re_side_b} \cr
+#'   }
+#'
+#' \strong{animal}
+#'   \tabular{ll}{
+#'     \code{species} \tab \code{species_label} \cr
+#'     \code{class} \tab \code{taxon_class} \cr
+#'     \code{marsup} \tab \code{is_marsupial} \cr
+#'     \code{cp} \tab \code{specific_heat} \cr
+#'     \code{mass} \tab \code{body_mass} \cr
+#'     \code{timdepmass} \tab \code{mass_by_julday_enabled} \cr
+#'     \code{mass2} \tab \code{mass_by_julday} \cr
+#'     \code{fatpct} \tab \code{body_fat_pct} \cr
+#'     \code{timdepfat} \tab \code{body_fat_pct_by_julday_enabled} \cr
+#'     \code{fatpct2} \tab \code{body_fat_pct_by_julday} \cr
+#'     \code{subqfat} \tab \code{subcutaneous_fat_enabled} \cr
+#'     \code{density} \tab \code{body_density} \cr
+#'     \code{usrmet} \tab \code{user_metabolic_rate_enabled} \cr
+#'     \code{met} \tab \code{metabolic_rate} \cr
+#'   }
+#'
+#' \strong{fur}
+#'   \tabular{ll}{
+#'     \code{diad} \tab \code{hair_diameter_dorsal} \cr
+#'     \code{diav} \tab \code{hair_diameter_ventral} \cr
+#'     \code{lend} \tab \code{hair_length_dorsal} \cr
+#'     \code{lenv} \tab \code{hair_length_ventral} \cr
+#'     \code{depd} \tab \code{fur_depth_dorsal} \cr
+#'     \code{depv} \tab \code{fur_depth_ventral} \cr
+#'     \code{dend} \tab \code{hair_density_dorsal} \cr
+#'     \code{denv} \tab \code{hair_density_ventral} \cr
+#'     \code{refld} \tab \code{reflectivity_dorsal} \cr
+#'     \code{reflv} \tab \code{reflectivity_ventral} \cr
+#'     \code{varfur} \tab \code{per_part_fur_enabled} \cr
+#'     \code{tmdptorfur} \tab \code{torso_fur_by_julday_enabled} \cr
+#'     \code{torlend} \tab \code{torso_hair_length_dorsal_by_julday} \cr
+#'     \code{torlenv} \tab \code{torso_hair_length_ventral_by_julday} \cr
+#'     \code{tordepd} \tab \code{torso_fur_depth_dorsal_by_julday} \cr
+#'     \code{tordepv} \tab \code{torso_fur_depth_ventral_by_julday} \cr
+#'     \code{parts.<part>.diad} \tab \code{parts.<part>.hair_diameter_dorsal} \cr
+#'     \code{parts.<part>.diav} \tab \code{parts.<part>.hair_diameter_ventral} \cr
+#'     \code{parts.<part>.lend} \tab \code{parts.<part>.hair_length_dorsal} \cr
+#'     \code{parts.<part>.lenv} \tab \code{parts.<part>.hair_length_ventral} \cr
+#'     \code{parts.<part>.depd} \tab \code{parts.<part>.fur_depth_dorsal} \cr
+#'     \code{parts.<part>.depv} \tab \code{parts.<part>.fur_depth_ventral} \cr
+#'     \code{parts.<part>.dend} \tab \code{parts.<part>.hair_density_dorsal} \cr
+#'     \code{parts.<part>.denv} \tab \code{parts.<part>.hair_density_ventral} \cr
+#'     \code{parts.<part>.refld} \tab \code{parts.<part>.reflectivity_dorsal} \cr
+#'     \code{parts.<part>.reflv} \tab \code{parts.<part>.reflectivity_ventral} \cr
+#'   }
+#'
+#' \strong{physiology}
+#'   \tabular{ll}{
+#'     \code{tcreg} \tab \code{core_temp_target} \cr
+#'     \code{tcmin} \tab \code{core_temp_min} \cr
+#'     \code{tcmax} \tab \code{core_temp_max} \cr
+#'     \code{tchib} \tab \code{hibernation_core_temp} \cr
+#'     \code{tmdptc} \tab \code{core_temp_by_julday_enabled} \cr
+#'     \code{tcreg2} \tab \code{core_temp_target_by_julday} \cr
+#'     \code{tctskdif} \tab \code{core_skin_temp_diff_min} \cr
+#'     \code{texptair} \tab \code{exhaled_air_temp_offset} \cr
+#'     \code{sknwet} \tab \code{skin_wetness_pct} \cr
+#'     \code{maxsknwet} \tab \code{skin_wetness_max_pct} \cr
+#'     \code{sweat} \tab \code{sweating_enabled} \cr
+#'     \code{pilo} \tab \code{piloerection_enabled} \cr
+#'     \code{maxpilo} \tab \code{piloerection_max_pct} \cr
+#'     \code{flshk} \tab \code{flesh_conductivity} \cr
+#'     \code{flshkmin} \tab \code{flesh_conductivity_min} \cr
+#'     \code{flshkmax} \tab \code{flesh_conductivity_max} \cr
+#'     \code{usrfurk} \tab \code{user_fur_conductivity_enabled} \cr
+#'     \code{usrfurk2} \tab \code{user_fur_conductivity} \cr
+#'     \code{radfurdep} \tab \code{radiant_exchange_fur_depth_frac} \cr
+#'     \code{o2max} \tab \code{o2_extraction_max_pct} \cr
+#'     \code{o2min} \tab \code{o2_extraction_min_pct} \cr
+#'   }
+#'
+#' \strong{diet}
+#'   \tabular{ll}{
+#'     \code{gut} \tab \code{gut_passage_time_days} \cr
+#'     \code{fech2o} \tab \code{fecal_water_frac} \cr
+#'     \code{urea} \tab \code{urine_urea_frac} \cr
+#'     \code{digef} \tab \code{digestive_efficiency} \cr
+#'     \code{act} \tab \code{activity_basal_multiple} \cr
+#'     \code{repro} \tab \code{reproduction_basal_multiple} \cr
+#'     \code{prtn} \tab \code{food_protein_frac} \cr
+#'     \code{fat} \tab \code{food_fat_frac} \cr
+#'     \code{carb} \tab \code{food_carb_frac} \cr
+#'     \code{dry} \tab \code{food_dry_matter_frac} \cr
+#'     \code{diurn} \tab \code{diurnal_enabled} \cr
+#'     \code{noct} \tab \code{nocturnal_enabled} \cr
+#'     \code{crep} \tab \code{crepuscular_enabled} \cr
+#'     \code{hibrn} \tab \code{hibernate_enabled} \cr
+#'     \code{hibfrac} \tab \code{hibernation_day_frac} \cr
+#'     \code{land} \tab \code{active_land_or_water} \cr
+#'     \code{land2} \tab \code{inactive_land_or_water} \cr
+#'   }
+#'
+#' \strong{thermoreg}
+#'   \tabular{ll}{
+#'     \code{burrow} \tab \code{burrow_enabled} \cr
+#'     \code{nest} \tab \code{nest_thermoreg_enabled} \cr
+#'     \code{climb} \tab \code{climb_enabled} \cr
+#'     \code{shdseek} \tab \code{shade_seeking_enabled} \cr
+#'     \code{dive} \tab \code{dive_cooling_enabled} \cr
+#'     \code{wind} \tab \code{wind_seeking_enabled} \cr
+#'     \code{niteshd} \tab \code{night_shade_enabled} \cr
+#'     \code{dive2} \tab \code{dive_option_enabled} \cr
+#'     \code{shdact} \tab \code{active_in_shade_enabled} \cr
+#'     \code{shdpost} \tab \code{shade_posture} \cr
+#'     \code{trord} \tab \code{behavior_first_enabled} \cr
+#'     \code{burTR} \tab \code{burrow_nest_use_option} \cr
+#'     \code{wade} \tab \code{wade_enabled} \cr
+#'     \code{treeslp} \tab \code{tree_sleep_enabled} \cr
+#'     \code{slpcnpy} \tab \code{tree_sleep_shade_pct} \cr
+#'     \code{hudl} \tab \code{huddle_enabled} \cr
+#'     \code{hudlnum} \tab \code{huddle_group_size} \cr
+#'     \code{hudldrs} \tab \code{huddle_contact_dorsal_frac} \cr
+#'     \code{hudlvnt} \tab \code{huddle_contact_ventral_frac} \cr
+#'     \code{tcconcur} \tab \code{concurrent_core_temp_increase_enabled} \cr
+#'     \code{tcinc} \tab \code{core_temp_change_increment} \cr
+#'     \code{tcwtr} \tab \code{core_temp_water_loss_trigger} \cr
+#'     \code{o2inc} \tab \code{o2_extraction_increment_pct} \cr
+#'     \code{sknwtinc} \tab \code{skin_wetness_increment_pct} \cr
+#'     \code{tcconcur2} \tab \code{concurrent_core_temp_decrease_enabled} \cr
+#'     \code{piloinc} \tab \code{piloerection_increment_frac} \cr
+#'   }
+#'
+#' \strong{flying_digging}
+#'   \tabular{ll}{
+#'     \code{flight} \tab \code{flight_enabled} \cr
+#'     \code{fltmetab} \tab \code{flight_metabolic_rate} \cr
+#'     \code{fltvel} \tab \code{flight_velocity} \cr
+#'     \code{fltload} \tab \code{flight_load} \cr
+#'     \code{foss} \tab \code{fossorial_enabled} \cr
+#'     \code{dig} \tab \code{digging_enabled} \cr
+#'     \code{nodes} \tab \code{fossorial_node} \cr
+#'     \code{arb} \tab \code{arboreal_enabled} \cr
+#'     \code{buro2} \tab \code{burrow_o2_pct} \cr
+#'     \code{burco2} \tab \code{burrow_co2_pct} \cr
+#'     \code{burn2} \tab \code{burrow_n2_pct} \cr
+#'     \code{soiltyp} \tab \code{soil_type} \cr
+#'     \code{burseg} \tab \code{burrow_segment_length} \cr
+#'     \code{burdep} \tab \code{burrow_depth} \cr
+#'   }
+#'
+#' \strong{nest_shelter}
+#'   \tabular{ll}{
+#'     \code{shelter} \tab \code{shelter_type} \cr
+#'     \code{nestuse} \tab \code{nest_use_when_inactive_enabled} \cr
+#'     \code{nestthk} \tab \code{nest_wall_thickness} \cr
+#'     \code{nestk} \tab \code{nest_wall_conductivity} \cr
+#'     \code{nestno} \tab \code{nest_occupants} \cr
+#'     \code{nestloc} \tab \code{nest_location} \cr
+#'     \code{nestnode} \tab \code{nest_soil_node} \cr
+#'     \code{nestlength} \tab \code{shelter_length} \cr
+#'     \code{outdiam} \tab \code{shelter_outer_diameter} \cr
+#'     \code{shltrefl} \tab \code{shelter_solar_reflectivity} \cr
+#'     \code{shltrans} \tab \code{shelter_transient_enabled} \cr
+#'     \code{shltdens} \tab \code{shelter_material_density} \cr
+#'     \code{shltcp} \tab \code{shelter_material_specific_heat} \cr
+#'     \code{nestheight} \tab \code{shelter_height_rel_ground} \cr
+#'     \code{shltnodes} \tab \code{shelter_node_count} \cr
+#'     \code{noderadius} \tab \code{shelter_node_radii} \cr
+#'   }
+#'
+#' \strong{allometry}
+#'   \tabular{ll}{
+#'     \code{group} \tab \code{taxon_group} \cr
+#'     \code{loco} \tab \code{locomotion} \cr
+#'     \code{tail_type} \tab \code{sixth_appendage_type} \cr
+#'     \code{absval} \tab \code{absolute_measurement_cm} \cr
+#'     \code{absdim} \tab \code{absolute_measurement_type} \cr
+#'     \code{adjdim} \tab \code{dimension_adjustment} \cr
+#'     \code{subq_head} \tab \code{subcutaneous_fat_head_enabled} \cr
+#'     \code{subq_neck} \tab \code{subcutaneous_fat_neck_enabled} \cr
+#'     \code{subq_torso} \tab \code{subcutaneous_fat_torso_enabled} \cr
+#'     \code{subq_front_leg} \tab \code{subcutaneous_fat_front_leg_enabled} \cr
+#'     \code{subq_rear_leg} \tab \code{subcutaneous_fat_rear_leg_enabled} \cr
+#'     \code{subq_tail} \tab \code{subcutaneous_fat_tail_enabled} \cr
+#'     \code{tmdpfat} \tab \code{mass_change_source} \cr
+#'     \code{post1} \tab \code{posture_1_enabled} \cr
+#'     \code{post2} \tab \code{posture_2_enabled} \cr
+#'     \code{post3} \tab \code{posture_3_enabled} \cr
+#'     \code{post4} \tab \code{posture_4_enabled} \cr
+#'     \code{slpstrt} \tab \code{sleep_start_posture} \cr
+#'     \code{shdstrt} \tab \code{shade_start_posture} \cr
+#'     \code{endpost} \tab \code{inactive_end_posture} \cr
+#'     \code{akmin_head} \tab \code{flesh_conductivity_min_head} \cr
+#'     \code{akmin_neck} \tab \code{flesh_conductivity_min_neck} \cr
+#'     \code{akmin_torso} \tab \code{flesh_conductivity_min_torso} \cr
+#'     \code{akmin_front_leg} \tab \code{flesh_conductivity_min_front_leg} \cr
+#'     \code{akmin_rear_leg} \tab \code{flesh_conductivity_min_rear_leg} \cr
+#'     \code{akmin_tail} \tab \code{flesh_conductivity_min_tail} \cr
+#'     \code{VTleg} \tab \code{variable_core_temp_legs_enabled} \cr
+#'     \code{VT6th} \tab \code{variable_core_temp_sixth_appendage_enabled} \cr
+#'     \code{Grd6th} \tab \code{sixth_appendage_on_ground_enabled} \cr
+#'     \code{torsover} \tab \code{torso_overhang} \cr
+#'     \code{torsoff} \tab \code{leg_vertical_offset} \cr
+#'     \code{brdslp} \tab \code{bird_sleep_standing_enabled} \cr
+#'     \code{brdslplg} \tab \code{bird_sleep_leg_count} \cr
+#'     \code{Tlegred} \tab \code{core_temp_reduction_legs_enabled} \cr
+#'     \code{T6thred} \tab \code{core_temp_reduction_sixth_appendage_enabled} \cr
+#'     \code{Tcred1} \tab \code{core_temp_reduction_legs_mode} \cr
+#'     \code{Tcred2} \tab \code{core_temp_reduction_sixth_appendage_mode} \cr
+#'     \code{Tfrac1} \tab \code{core_temp_reduction_legs_fraction} \cr
+#'     \code{Tfrac2} \tab \code{core_temp_reduction_sixth_appendage_fraction} \cr
+#'     \code{Tdif1} \tab \code{core_temp_reduction_legs_difference} \cr
+#'     \code{Tdif2} \tab \code{core_temp_reduction_sixth_appendage_difference} \cr
+#'     \code{MinT} \tab \code{appendage_temp_min} \cr
+#'     \code{Tleginc} \tab \code{leg_temp_increase_if_hot_enabled} \cr
+#'     \code{T6thinc} \tab \code{sixth_appendage_temp_increase_if_hot_enabled} \cr
+#'     \code{parts.<part>.diav} \tab \code{parts.<part>.diameter_vertical} \cr
+#'     \code{parts.<part>.diah} \tab \code{parts.<part>.diameter_horizontal} \cr
+#'     \code{parts.<part>.len} \tab \code{parts.<part>.length} \cr
+#'     \code{parts.<part>.dorsfur} \tab \code{parts.<part>.fur_depth_dorsal_reference} \cr
+#'     \code{parts.<part>.dorsfur_a} \tab \code{parts.<part>.fur_depth_dorsal_adjusted} \cr
+#'     \code{parts.<part>.ventfur} \tab \code{parts.<part>.fur_depth_ventral_reference} \cr
+#'     \code{parts.<part>.ventfur_a} \tab \code{parts.<part>.fur_depth_ventral_adjusted} \cr
+#'     \code{parts.<part>.dens} \tab \code{parts.<part>.density} \cr
+#'     \code{parts.<part>.geom} \tab \code{parts.<part>.geometry} \cr
+#'   }
+#'
 #' Running \code{Endo2022a.exe}, parsing its outputs, and generating
 #' \code{JULDAYS.dat} are out of scope for this function.
 #'
@@ -189,9 +515,10 @@ write_endotherm_inputs <- function(output_dir,
   fur_trs  <- if (fr$per_part_fur_enabled == 0) fr else fr$parts$torso
   fur_tail <- if (fr$per_part_fur_enabled == 0) fr else fr$parts$tail
 
-  # NOTE: the "legs" row uses different spacing (two spaces before depd/denv)
-  # than the head&neck/torso/tail rows (tab before depd, one space before
-  # denv) in the source script. Preserved verbatim as two separate builders.
+  # NOTE: the "legs" row uses different spacing (two spaces before
+  # fur_depth_dorsal and hair_density_ventral) than the head&neck/torso/tail
+  # rows (tab before fur_depth_dorsal, one space before hair_density_ventral)
+  # in the source script. Preserved verbatim as two separate builders.
   .fur_row_leg <- function(p) {
     c(format(round(p$hair_diameter_dorsal, 1), nsmall = 1), " ", format(round(p$hair_diameter_ventral, 1), nsmall = 1), " ",
       format(round(p$hair_length_dorsal, 1), nsmall = 1), " ", format(round(p$hair_length_ventral, 1), nsmall = 1), "  ",
@@ -1362,7 +1689,8 @@ micro_to_csv <- function(abvgrd_input, blwgrd_input, cell, cell_input_type,
 #' \code{Reflect. \%} column to a 0-1 proportion, and trapezoidally
 #' integrates it over wavelength to get a single mean reflectance value --
 #' the input expected by \code{\link{write_endotherm_inputs}}'s
-#' \code{fur$refld}/\code{fur$reflv} (dorsal/ventral pelt reflectance)
+#' \code{fur$reflectivity_dorsal}/\code{fur$reflectivity_ventral}
+#' (dorsal/ventral pelt reflectance)
 #' fields.
 #'
 #' @param sed_input Either a path (character) to a single \code{.sed}

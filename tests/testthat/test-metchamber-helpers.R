@@ -38,7 +38,7 @@ test_that(".mc_scenario_overrides sets curled scenarios inactive all day with fo
   expect_equal(ov$physiology, list())
 })
 
-test_that(".mc_scenario_overrides narrows core temp to tcreg +/- 0.1 for constant scenarios", {
+test_that(".mc_scenario_overrides narrows core temp to core_temp_target +/- 0.1 for constant scenarios", {
   endo_inputs <- get_endotherm_defaults()
   tcreg <- endo_inputs$physiology$core_temp_target
   ov <- .mc_scenario_overrides("curled_constant", endo_inputs)
@@ -51,14 +51,14 @@ test_that(".mc_scenario_overrides narrows core temp to tcreg +/- 0.1 for constan
   expect_equal(ov2$allometry, list())
 })
 
-test_that(".mc_scenario_overrides leaves tcmax/tcmin untouched for variable scenarios", {
+test_that(".mc_scenario_overrides leaves core_temp_max/core_temp_min untouched for variable scenarios", {
   endo_inputs <- get_endotherm_defaults()
   ov <- .mc_scenario_overrides("standing_variable", endo_inputs)
   expect_null(ov$physiology$core_temp_max)
   expect_null(ov$physiology$core_temp_min)
 })
 
-test_that(".mc_target_rmr uses the user-supplied metabolic rate when usrmet is Y", {
+test_that(".mc_target_rmr uses the user-supplied metabolic rate when user_metabolic_rate_enabled is Y", {
   endo_inputs <- get_endotherm_defaults()
   endo_inputs$animal$user_metabolic_rate_enabled <- "Y"
   endo_inputs$animal$metabolic_rate <- 42

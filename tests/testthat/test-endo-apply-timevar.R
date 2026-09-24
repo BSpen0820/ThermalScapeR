@@ -17,7 +17,7 @@ test_that(".endo_apply_timevar leaves endo_inputs untouched when time_varying is
   expect_identical(result, endo_inputs)
 })
 
-test_that(".endo_apply_timevar sets mass2/timdepmass from a sliced vector", {
+test_that(".endo_apply_timevar sets mass_by_julday/mass_by_julday_enabled from a sliced vector", {
   endo_inputs <- get_endotherm_defaults(julnum = 4, juldays = 1:4)
   tv <- endo_timevar_template()
   tv$mass_by_julday <- c(56, 55, 54, 53, 52, 51, 50, 49, 47, 45)  # 10-day full window
@@ -26,7 +26,7 @@ test_that(".endo_apply_timevar sets mass2/timdepmass from a sliced vector", {
   expect_equal(result$animal$mass_by_julday, c(54, 53, 52, 51))
 })
 
-test_that(".endo_apply_timevar backfills the other three torso-fur fields and sets tmdptorfur when only one is supplied", {
+test_that(".endo_apply_timevar backfills the other three torso-fur fields and sets torso_fur_by_julday_enabled when only one is supplied", {
   endo_inputs <- get_endotherm_defaults(julnum = 3, juldays = 1:3)
   static_lend <- endo_inputs$fur$torso_hair_length_dorsal_by_julday[1]
   static_lenv <- endo_inputs$fur$torso_hair_length_ventral_by_julday[1]

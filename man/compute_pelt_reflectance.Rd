@@ -28,7 +28,8 @@ an already-parsed data.frame of the same shape -- converts its
 \code{Reflect. \%} column to a 0-1 proportion, and trapezoidally
 integrates it over wavelength to get a single mean reflectance value --
 the input expected by \code{\link{write_endotherm_inputs}}'s
-\code{fur$refld}/\code{fur$reflv} (dorsal/ventral pelt reflectance)
+\code{fur$reflectivity_dorsal}/\code{fur$reflectivity_ventral}
+(dorsal/ventral pelt reflectance)
 fields.
 }
 \details{

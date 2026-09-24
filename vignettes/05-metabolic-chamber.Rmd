@@ -34,9 +34,9 @@ but skipped everywhere else (including CI and CRAN-style checks).
 library(ThermalScapeR)
 
 endo_inputs <- get_endotherm_defaults()
-endo_inputs$animal$species <- "Male Bighorn"
-endo_inputs$animal$mass    <- 60
-endo_inputs$animal$mass2   <- rep(60, endo_inputs$model_settings$julnum)
+endo_inputs$animal$species_label    <- "Male Bighorn"
+endo_inputs$animal$body_mass        <- 60
+endo_inputs$animal$mass_by_julday   <- rep(60, endo_inputs$model_settings$julnum)
 
 exe_path <- "D:/Code/Niche Mapper/NicheMap_UpdatedExe/Endotherm Model and Input Files/Endo2022a.exe"
 ```
@@ -70,7 +70,7 @@ plots <- plot(result)
 
 Each chart compares predicted metabolic rate against air temperature for
 standing vs. curled posture, with dashed reference lines at the target RMR
-+/- its error margin (`endo_inputs$model_settings$err`). A well-calibrated
++/- its error margin (`endo_inputs$model_settings$thermoreg_trigger_tolerance`). A well-calibrated
 parameterization crosses those lines near its thermoneutral zone; if it
 doesn't, revisit `animal`, `fur`, or `physiology` in
 `vignette("04-endotherm-inputs")` before moving on to a landscape-scale
