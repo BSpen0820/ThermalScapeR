@@ -18,6 +18,14 @@ flatten_leaves <- function(x, prefix = "") {
   out
 }
 
+endotherm_preset_template_for_test <- function() {
+  tbl <- endotherm_species_presets
+  tbl[["Test Sheep"]] <- NA_character_
+  tbl[["Test Sheep"]][tbl$param == "__inherits_from__"] <- "Female Bighorn - Winter"
+  tbl[["Test Sheep"]][tbl$param == "animal.body_mass"] <- "99"
+  tbl
+}
+
 legacy_to_new <- function(x, map = legacy_rename_map(), prefix = "") {
   lookup <- stats::setNames(map$new_path, map$old_path)
   out <- list()

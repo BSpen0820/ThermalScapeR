@@ -187,3 +187,87 @@
   root <- setdiff(names(tbl), .endo_reserved_cols)[1]
   .endo_resolve_preset(tbl, root, julnum, juldays)
 }
+
+.endo_read_presets <- function(presets = NULL) {
+  builtin <- .endo_builtin_presets()
+  if (is.null(presets)) return(builtin)
+  if (is.character(presets) && length(presets) == 1L) {
+    if (!file.exists(presets))
+      stop(sprintf("'presets' file does not exist:\n  %s", presets))
+    presets <- .endo_read_csv(presets)
+  }
+  .endo_check_presets(presets, builtin)
+}
+
+#' Get the default parameter set for write_endotherm_inputs()
+#'
+#' Returns the parameter set for one animal preset (species/season) as the
+#' nine-group named list that \code{write_endotherm_inputs()} takes, so it can
+#' be inspected, edited (see \code{\link{override_endotherm_defaults}}), and
+#' passed back in.
+#'
+#' @param species Name of the preset, exactly as it appears in
+#'   \code{\link{list_endotherm_species}} (matching is case-insensitive).
+#'   Default \code{"Female Bighorn - Winter"}.
+#' @param julnum Number of julian days in the model run. Defaults to \code{12}
+#'   (one per month). Per-julian-day fields are sized to this value.
+#' @param juldays Numeric vector of julian day numbers, length \code{julnum}.
+#'   Defaults to the 12 monthly midpoints.
+#' @param presets \code{NULL} (default) uses the package's built-in
+#'   \code{\link{endotherm_species_presets}}. Otherwise a data.frame, or the path
+#'   to a CSV, with the same layout (see \code{\link{endotherm_preset_template}}).
+#'
+#' @return A named \code{list()} with nine elements - \code{model_settings,
+#'   animal, fur, physiology, diet, thermoreg, flying_digging, nest_shelter,
+#'   allometry} - using the same names as \code{write_endotherm_inputs()}'s
+#'   arguments, suitable for
+#'   \code{do.call(write_endotherm_inputs, c(list(output_dir = ...), defaults))}.
+#'
+#' @details
+#' Values come from a preset table: one row per parameter, one column per
+#' species. A species column can name a parent (\code{__inherits_from__}) and
+#' only fill in the parameters that differ; blank cells inherit. Fields that are
+#' derived from others (whole-body fur from the torso, the \code{*_by_julday}
+#' twins of \code{body_mass}, \code{body_fat_pct} and \code{core_temp_target})
+#' are computed here and are not stored in the table.
+#'
+#' @examples
+#' \dontrun{
+#'   list_endotherm_species()
+#'   defaults <- get_endotherm_defaults("Female Bighorn - Winter")
+#'   str(defaults$animal)
+#'   do.call(write_endotherm_inputs, c(list(output_dir = "working_dir"), defaults))
+#' }
+#'
+#' @seealso \code{\link{list_endotherm_species}},
+#'   \code{\link{override_endotherm_defaults}},
+#'   \code{\link{endotherm_preset_template}}, \code{\link{write_endotherm_inputs}}
+#' @export
+get_endotherm_defaults <- function(species = "Female Bighorn - Winter",
+                                   julnum = 12,
+                                   juldays = .endo_default_juldays,
+                                   presets = NULL) {
+  .chk_vec_len(juldays, julnum, "juldays")
+  tbl <- .endo_read_presets(presets)
+  .endo_resolve_preset(tbl, species, julnum, juldays)
+}
+
+#' List the available Endotherm species presets
+#'
+#' @param presets \code{NULL} (default) for the built-in table, or a
+#'   data.frame / CSV path in the same layout (see
+#'   \code{\link{get_endotherm_defaults}}).
+#'
+#' @return A character vector of preset names, the valid values of
+#'   \code{get_endotherm_defaults(species = )}.
+#'
+#' @details Preset names are the species column headers of the preset table.
+#'
+#' @examples
+#' list_endotherm_species()
+#'
+#' @seealso \code{\link{get_endotherm_defaults}}, \code{\link{endotherm_preset_template}}
+#' @export
+list_endotherm_species <- function(presets = NULL) {
+  setdiff(names(.endo_read_presets(presets)), .endo_reserved_cols)
+}

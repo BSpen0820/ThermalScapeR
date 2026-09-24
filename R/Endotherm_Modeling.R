@@ -45,7 +45,7 @@ write_juldays_dat <- function(output_dir, model_settings = list(), habitat_setti
   if (!dir.exists(output_dir))
     stop(sprintf("'output_dir' does not exist:\n  %s", output_dir))
 
-  ms <- utils::modifyList(.default_model_settings(), model_settings)
+  ms <- utils::modifyList(.endo_baseline()$model_settings, model_settings)
   julnum <- ms$julnum
   .chk_vec_len(ms$juldays, julnum, "model_settings$juldays")
 
