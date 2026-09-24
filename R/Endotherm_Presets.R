@@ -179,3 +179,11 @@
   out$model_settings <- c(list(julnum = julnum, juldays = juldays), out$model_settings)
   out[.endo_groups]
 }
+
+.endo_builtin_presets <- function() ThermalScapeR::endotherm_species_presets
+
+.endo_baseline <- function(julnum = 12, juldays = .endo_default_juldays) {
+  tbl <- .endo_builtin_presets()
+  root <- setdiff(names(tbl), .endo_reserved_cols)[1]
+  .endo_resolve_preset(tbl, root, julnum, juldays)
+}
