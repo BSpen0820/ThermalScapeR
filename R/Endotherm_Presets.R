@@ -361,3 +361,71 @@ override_endotherm_defaults <- function(defaults, ...) {
   }
   defaults
 }
+
+#' Generate a preset table with a new blank species column
+#'
+#' Returns the preset table (built-in by default) with one new, blank species
+#' column appended, ready to be filled in. Optionally writes it to CSV so it
+#' can be edited in a spreadsheet and passed back via
+#' \code{get_endotherm_defaults(presets = )}.
+#'
+#' @param new_species Name of the new species/preset column: one non-empty
+#'   string not already in the table. This is the string later passed as
+#'   \code{species =}.
+#' @param base_species Optional name of an existing preset in \code{presets}
+#'   that the new column inherits from. Set, the new column starts blank and only
+#'   the parameters that differ need to be filled in. \code{NULL} makes the new
+#'   column a root, which must then be filled in completely.
+#' @param presets \code{NULL} (default) for the built-in table, or a data.frame /
+#'   CSV path in the same layout to extend.
+#' @param output_file Optional CSV path to write the result to.
+#'
+#' @return The whole table (existing species columns plus the new one) as a
+#'   data.frame; invisibly when \code{output_file} is given.
+#'
+#' @details
+#' The \code{param} column lists every parameter the model needs, so the new
+#' column always lines up with what \code{\link{get_endotherm_defaults}}
+#' reads. The returned table is self-contained: it carries its own copy of any
+#' parent species, so later changes to the package's built-in table do not
+#' change a CSV you already exported (parameters added later are filled in
+#' from the built-in root, with a warning). Blank and \code{NA} cells mean
+#' "inherit from the parent". Edit numbers as plain values, e.g. \code{0.85}.
+#'
+#' @examples
+#' \dontrun{
+#'   endotherm_preset_template("Elk - Winter",
+#'                             base_species = "Female Bighorn - Winter",
+#'                             output_file = "elk_presets.csv")
+#'   # edit elk_presets.csv, then:
+#'   d <- get_endotherm_defaults("Elk - Winter", presets = "elk_presets.csv")
+#' }
+#'
+#' @seealso \code{\link{get_endotherm_defaults}}, \code{\link{list_endotherm_species}}
+#' @export
+endotherm_preset_template <- function(new_species, base_species = NULL,
+                                      presets = NULL, output_file = NULL) {
+  if (!is.character(new_species) || length(new_species) != 1L ||
+      is.na(new_species) || !nzchar(trimws(new_species)))
+    stop("'new_species' must be a single non-empty string")
+  new_species <- trimws(new_species)
+  if (identical(new_species, .endo_inherit_row))
+    stop(sprintf("'%s' cannot be used as a species name", .endo_inherit_row))
+
+  tbl <- .endo_read_presets(presets)
+  if (new_species %in% names(tbl))
+    stop(sprintf("'%s' already exists in the presets table", new_species))
+
+  col <- rep(NA_character_, nrow(tbl))
+  if (!is.null(base_species)) {
+    base <- .endo_match_species(base_species, setdiff(names(tbl), .endo_reserved_cols))
+    col[tbl$param == .endo_inherit_row] <- base
+  }
+  tbl[[new_species]] <- col
+
+  if (!is.null(output_file)) {
+    utils::write.csv(tbl, output_file, row.names = FALSE, na = "")
+    return(invisible(tbl))
+  }
+  tbl
+}
