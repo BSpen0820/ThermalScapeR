@@ -1,13 +1,54 @@
-.get_total_ram <- function() {
-  if (.Platform$OS.type == "windows") {
-    raw <- system("wmic OS get TotalVisibleMemorySize /Value", intern = TRUE)
-    kb  <- as.numeric(gsub("[^0-9]", "", raw[grepl("=", raw)]))
-    kb * 1024
-  } else {
-    lines <- readLines("/proc/meminfo", n = 1)
-    kb    <- as.numeric(gsub("[^0-9]", "", lines[1]))
-    kb * 1024
+.parse_meminfo_bytes <- function(lines) {
+  hit <- grep("^MemTotal:", lines, value = TRUE)
+  if (length(hit) == 0L) stop("could not find MemTotal in /proc/meminfo")
+  as.numeric(gsub("[^0-9]", "", hit[1])) * 1024
+}
+
+.parse_single_number <- function(x) {
+  x <- trimws(x)
+  x <- x[nzchar(x)]
+  if (length(x) == 0L) return(NA_real_)
+  suppressWarnings(as.numeric(x[1]))
+}
+
+.windows_total_ram_kb <- function() {
+  ps_cmd <- "\"(Get-CimInstance -ClassName Win32_OperatingSystem).TotalVisibleMemorySize\""
+  for (exe in unname(Sys.which(c("powershell", "pwsh")))) {
+    if (!nzchar(exe)) next
+    out <- tryCatch(
+      suppressWarnings(system2(exe, c("-NoProfile", "-NonInteractive", "-Command", ps_cmd),
+                               stdout = TRUE, stderr = FALSE)),
+      error = function(e) character(0)
+    )
+    kb <- .parse_single_number(out)
+    if (is.finite(kb)) return(kb)
   }
+  wmic <- unname(Sys.which("wmic"))
+  if (nzchar(wmic)) {
+    out <- tryCatch(
+      suppressWarnings(system2(wmic, c("OS", "get", "TotalVisibleMemorySize", "/Value"),
+                               stdout = TRUE, stderr = FALSE)),
+      error = function(e) character(0)
+    )
+    kb <- as.numeric(gsub("[^0-9]", "", out[grepl("=", out)]))[1]
+    if (is.finite(kb)) return(kb)
+  }
+  NA_real_
+}
+
+.get_total_ram <- function(sysname = Sys.info()[["sysname"]]) {
+  bytes <- switch(
+    sysname,
+    Windows = .windows_total_ram_kb() * 1024,
+    Darwin  = .parse_single_number(tryCatch(
+      suppressWarnings(system2("sysctl", c("-n", "hw.memsize"), stdout = TRUE, stderr = FALSE)),
+      error = function(e) character(0)
+    )),
+    if (file.exists("/proc/meminfo")) .parse_meminfo_bytes(readLines("/proc/meminfo")) else NA_real_
+  )
+  if (!is.finite(bytes) || bytes <= 0)
+    stop(sprintf("Unable to determine total RAM on this platform (%s)", sysname))
+  bytes
 }
 
 # --------------------------------------------------------------------------- #
