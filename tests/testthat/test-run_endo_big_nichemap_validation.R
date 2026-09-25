@@ -68,11 +68,12 @@ test_that(".endo_resize_static_fields resizes statics without disturbing time-va
   # what actually matters here.
   endo_inputs <- get_endotherm_defaults()          # julnum = 12
   tv <- endo_timevar_template()
-  tv$act <- seq(1.00, 1.29, by = 0.01)             # 30-day full window
+  tv$activity_basal_multiple <- seq(1.00, 1.29, by = 0.01)  # 30-day full window
   julnum <- 15; idx <- 16:30
   prepped <- ThermalScapeR:::.endo_resize_static_fields(endo_inputs, julnum)
   prepped <- ThermalScapeR:::.endo_apply_timevar(prepped, tv, idx)
-  expect_equal(prepped$diet$act, tv$act[idx])      # time-varying override applied correctly
-  expect_length(prepped$diet$digef, julnum)        # static field resized
-  expect_length(prepped$animal$mass2, julnum)
+  # time-varying override applied correctly
+  expect_equal(prepped$diet$activity_basal_multiple, tv$activity_basal_multiple[idx])
+  expect_length(prepped$diet$digestive_efficiency, julnum)  # static field resized
+  expect_length(prepped$animal$mass_by_julday, julnum)
 })

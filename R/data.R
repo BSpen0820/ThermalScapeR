@@ -208,3 +208,26 @@
 #' \code{\link{AORC_meterodf}}, \code{\link{Microclim_meterodf}}
 #' @name data_sources
 NULL
+
+#' Endotherm species preset table
+#'
+#' Long-format table of NicheMapR Endotherm model input parameters. One row per
+#' parameter, one column per species/season preset. Read by
+#' \code{\link{get_endotherm_defaults}}. To add a species, generate an
+#' extended copy with \code{\link{endotherm_preset_template}}, fill it in, and
+#' pass the CSV to \code{get_endotherm_defaults(presets = )}. (Package
+#' developers: the built-in table is rebuilt from
+#' \code{data-raw/endotherm_species_presets.csv} by
+#' \code{data-raw/endotherm_species_presets.R}.)
+#'
+#' @format A data.frame with columns \code{param} (dotted path, e.g.
+#'   \code{animal.body_mass}), \code{type} (\code{"numeric"} or
+#'   \code{"character"}), \code{by_julday} (\code{"TRUE"} if the scalar cell is
+#'   repeated to one value per julian day), and one column per species. The first
+#'   data row is \code{__inherits_from__}: the parent species a column inherits
+#'   blank cells from (empty for a root). All cells are character.
+#'
+#' @source \code{"Female Bighorn - Winter"} is the reference parameterization
+#'   extracted from a real NicheMapR Endotherm run (SheepMigrationLoss project,
+#'   \code{endo.dat}/\code{alomvars.dat}); Bryan Spencer.
+"endotherm_species_presets"

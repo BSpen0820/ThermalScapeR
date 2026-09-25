@@ -9,3 +9,5 @@
 *.exe binary
 *.h5 binary
 *.nc binary
+
+tests/testthat/fixtures/legacy/** -text

@@ -20,31 +20,55 @@ NicheMapR Endotherm model executable (`Endo2022a.exe`) reads. Everything on
 this page runs in plain R and does not require the executable itself — it
 picks up in `vignette("05-metabolic-chamber")`.
 
-## 1. Start from the package's reference defaults
+## 1. Start from a species preset
 
 `get_endotherm_defaults()` returns the same nine argument groups that
 `write_endotherm_inputs()` takes (`model_settings`, `animal`, `fur`,
 `physiology`, `diet`, `thermoreg`, `flying_digging`, `nest_shelter`,
-`allometry`), pre-filled with a reference Female Bighorn Sheep
-parameterization extracted from a real NicheMapR Endotherm run.
+`allometry`), pre-filled from a named preset. The package ships a Female
+Bighorn Sheep winter parameterization extracted from a real NicheMapR
+Endotherm run.
 
 ```{r}
 library(ThermalScapeR)
 
-defaults <- get_endotherm_defaults()
+list_endotherm_species()
+
+defaults <- get_endotherm_defaults(species = "Female Bighorn - Winter")
 str(defaults, max.level = 1)
 ```
 
 ## 2. Customize for a study animal
 
-Edit whichever fields differ for your animal. Any field that varies by
-Julian day (suffixed `2`, e.g. `mass2`) must stay the same length as
-`model_settings$julnum` (12 by default, one value per month).
+`override_endotherm_defaults()` changes any number of fields in one call,
+addressing each by its `group.field` path. A single value given for a
+per-Julian-day field (for example `diet.food_fat_frac`) is repeated to one
+value per day.
 
 ```{r}
-defaults$animal$species <- "Male Bighorn"
-defaults$animal$mass    <- 60
-defaults$animal$mass2   <- rep(60, defaults$model_settings$julnum)
+defaults <- override_endotherm_defaults(
+  defaults,
+  animal.species_label = "Male Bighorn",
+  animal.body_mass     = 60
+)
+```
+
+### Adding your own species
+
+Presets live in a table with one row per parameter and one column per
+species. `endotherm_preset_template()` generates that table with a new blank
+column, optionally inheriting from an existing species so only the values that
+differ need filling in. Write it to CSV, edit it in a spreadsheet, and pass it
+back with `presets =`.
+
+```{r, eval = FALSE}
+endotherm_preset_template("Elk - Winter",
+                          base_species = "Female Bighorn - Winter",
+                          output_file  = "elk_presets.csv")
+
+# ...edit elk_presets.csv...
+
+elk <- get_endotherm_defaults("Elk - Winter", presets = "elk_presets.csv")
 ```
 
 ## 3. Write endo.dat and alomvars.dat

@@ -72,8 +72,9 @@ same prefix. Ignored on Windows.}
 \item{endo_inputs}{Named list in \code{\link{get_endotherm_defaults}}'s
 9-group shape - the animal model. Default \code{get_endotherm_defaults()}.
 Its julnum-length fields not overridden via \code{time_varying}
-(\code{animal$mass2}/\code{fatpct2}, \code{physiology$tcreg2}, the four
-torso-fur fields, and every \code{diet} vector field) are re-sized to
+(\code{animal$mass_by_julday}/\code{body_fat_pct_by_julday},
+\code{physiology$core_temp_target_by_julday}, the four torso-fur
+\code{*_by_julday} fields, and every \code{diet} vector field) are re-sized to
 each chunk's own julnum (from their first element) before
 \code{\link{write_endotherm_inputs}} is called, so \code{endo_inputs}
 need not be pre-built at any particular julnum.}
@@ -81,7 +82,9 @@ need not be pre-built at any particular julnum.}
 \item{time_varying}{Named list from \code{\link{endo_timevar_template}},
 with whichever fields should vary over the sim window overwritten with a
 vector of length equal to the sim window's day count. Default (all
-\code{NULL}) applies no overrides.}
+\code{NULL}) applies no overrides. A name not in
+\code{endo_timevar_template()} (e.g. a pre-rename name such as
+\code{mass2}) is an error, raised before any input is read.}
 
 \item{chunk_size}{Integer, 1-52. The exe's per-invocation day limit is 52;
 longer sim windows are split into this many days per chunk (the last

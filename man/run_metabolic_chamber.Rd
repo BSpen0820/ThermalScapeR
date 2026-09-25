@@ -83,13 +83,21 @@ real \code{endo.dat}/\code{alomvars.dat} already on disk.
 \details{
 Every scenario always applies this fixed override table on top of
 \code{endo_inputs} (before \code{mc_overrides} or scenario-specific
-fields): \code{model_settings} \code{outout/microin/outfile = "Y"/"CSV"/"CSV"},
-\code{strht = "N"}; \code{physiology} \code{sweat/pilo = "N"};
-\code{diet} \code{act = rep(1.0, 12)}, \code{repro = rep(0.0, 12)};
-\code{thermoreg} \code{burrow/nest/climb/shdseek/dive/wind/niteshd/dive2 =
-"N"}, \code{shdact = "Y"}, \code{shdpost = "S"}, \code{treeslp/hudl/
-tcconcur/tcconcur2 = "N"}; \code{flying_digging}
-\code{flight/foss/dig/arb = "N"}. If a scenario's exe run fails, a
+fields): \code{model_settings} \code{output_file_enabled/
+microclimate_input_format/output_file_format = "Y"/"CSV"/"CSV"},
+\code{stored_heat_enabled = "N"}; \code{physiology}
+\code{sweating_enabled/piloerection_enabled = "N"}; \code{diet}
+\code{activity_basal_multiple = rep(1.0, 12)},
+\code{reproduction_basal_multiple = rep(0.0, 12)}; \code{thermoreg}
+\code{burrow_enabled/nest_thermoreg_enabled/climb_enabled/
+shade_seeking_enabled/dive_cooling_enabled/wind_seeking_enabled/
+night_shade_enabled/dive_option_enabled = "N"},
+\code{active_in_shade_enabled = "Y"}, \code{shade_posture = "S"},
+\code{tree_sleep_enabled/huddle_enabled/
+concurrent_core_temp_increase_enabled/
+concurrent_core_temp_decrease_enabled = "N"}; \code{flying_digging}
+\code{flight_enabled/fossorial_enabled/digging_enabled/arboreal_enabled = "N"}.
+If a scenario's exe run fails, a
 \code{warning()} is issued and that scenario is omitted from
 \code{$hourplot} (recorded as a failure in \code{$log}); the function only
 \code{stop()}s if every requested scenario fails.

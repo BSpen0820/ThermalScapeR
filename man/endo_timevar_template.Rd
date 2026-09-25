@@ -9,19 +9,27 @@ endo_timevar_template()
 \value{
 A named list of 21 elements, all \code{NULL}:
 \describe{
-\item{Toggle-gated}{\code{mass2}, \code{fatpct2}, \code{tcreg2}
-(each backed by a static scalar + a \code{timdep*}/\code{tmdp*} flag
+\item{Toggle-gated}{\code{mass_by_julday},
+\code{body_fat_pct_by_julday}, \code{core_temp_target_by_julday}
+(each backed by a static scalar + a \code{*_by_julday_enabled} flag
 elsewhere in \code{\link{get_endotherm_defaults}}'s output - see
-\code{\link{write_endotherm_inputs}}); \code{torlend}, \code{torlenv},
-\code{tordepd}, \code{tordepv} (torso hair length/fur depth,
+\code{\link{write_endotherm_inputs}});
+\code{torso_hair_length_dorsal_by_julday},
+\code{torso_hair_length_ventral_by_julday},
+\code{torso_fur_depth_dorsal_by_julday},
+\code{torso_fur_depth_ventral_by_julday} (torso hair length/fur depth,
 dorsal/ventral - these four share a single flag,
-\code{fur$tmdptorfur}: supplying any one of them makes
+\code{fur$torso_fur_by_julday_enabled}: supplying any one of them makes
 \code{\link{run_endo_big_nichemap}} treat all four as vectors,
 backfilling the ones you didn't supply with their static value).}
-\item{Always-vector}{\code{digef}, \code{act}, \code{repro},
-\code{prtn}, \code{fat}, \code{carb}, \code{dry}, \code{diurn},
-\code{noct}, \code{crep}, \code{hibrn}, \code{hibfrac}, \code{land},
-\code{land2} - already per-julday vectors by design in
+\item{Always-vector}{\code{digestive_efficiency},
+\code{activity_basal_multiple}, \code{reproduction_basal_multiple},
+\code{food_protein_frac}, \code{food_fat_frac}, \code{food_carb_frac},
+\code{food_dry_matter_frac}, \code{diurnal_enabled},
+\code{nocturnal_enabled}, \code{crepuscular_enabled},
+\code{hibernate_enabled}, \code{hibernation_day_frac},
+\code{active_land_or_water}, \code{inactive_land_or_water} - already
+per-julday vectors by design in
 \code{\link{get_endotherm_defaults}}'s \code{diet} group; no flag
 is involved, a supplied vector simply overwrites the default
 repeated-constant vector.}
