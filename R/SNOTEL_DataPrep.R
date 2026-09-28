@@ -149,3 +149,30 @@
   }
   out
 }
+
+.snotel_nearest_station <- function(stations, lon, lat, periods, network, try_fn) {
+  cand <- stations
+  if (!is.null(network)) {
+    unknown <- setdiff(network, unique(stations$networkCode))
+    if (length(unknown) > 0L)
+      stop(sprintf("Unknown network(s): %s. Valid values: %s.",
+                   paste(unknown, collapse = ", "),
+                   paste(sort(unique(stations$networkCode)), collapse = ", ")))
+    cand <- cand[cand$networkCode %in% network, , drop = FALSE]
+  }
+  overlaps <- vapply(seq_len(nrow(cand)), function(i)
+    all(cand$beginDate[i] <= periods$end & cand$endDate[i] >= periods$start), logical(1))
+  cand <- cand[overlaps, , drop = FALSE]
+  if (nrow(cand) == 0L)
+    stop(sprintf(
+      "No station in network(s) %s has a period of record covering every requested period.",
+      if (is.null(network)) "<any>" else paste(network, collapse = ", ")))
+  cand$dist_km <- .station_haversine(lon, lat, cand$longitude, cand$latitude)
+  cand <- cand[order(cand$dist_km), , drop = FALSE]
+  for (i in seq_len(nrow(cand))) {
+    if (try_fn(cand[i, , drop = FALSE])) return(cand[i, , drop = FALSE])
+    warning(sprintf("Station %s (%s) returned no data; trying the next-nearest station.",
+                    cand$name[i], cand$stationTriplet[i]))
+  }
+  stop("No candidate station returned data for the requested period(s).")
+}
