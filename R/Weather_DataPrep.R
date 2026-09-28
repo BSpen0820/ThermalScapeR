@@ -85,3 +85,84 @@
     stop("`coords` are out of range (lon within +/-180, lat within +/-90).")
   c(lon = lon, lat = lat)
 }
+
+.crn_ascii <- function(x) {
+  y <- iconv(x, from = "UTF-8", to = "ASCII//TRANSLIT")
+  y[is.na(y)] <- x[is.na(y)]
+  y
+}
+
+.crn_norm_name <- function(x) {
+  tolower(gsub("[[:space:]_]+", "_", trimws(.crn_ascii(x))))
+}
+
+.crn_parse_stations <- function(path) {
+  st <- readr::read_tsv(path,
+                        col_types = readr::cols(.default = readr::col_character()),
+                        na = character(), quote = "", progress = FALSE)
+  st <- as.data.frame(st, stringsAsFactors = FALSE)
+  for (col in c("COMMISSIONING", "CLOSING")) {
+    x <- substr(st[[col]], 1L, 10L)
+    x[!nzchar(x)] <- NA_character_
+    st[[col]] <- as.Date(x, format = "%Y-%m-%d")
+  }
+  for (col in c("LATITUDE", "LONGITUDE", "ELEVATION"))
+    st[[col]] <- as.numeric(st[[col]])
+  st$STATION_DIR <- gsub("[[:space:]]+", "_",
+                         paste(trimws(st$STATE), trimws(.crn_ascii(st$LOCATION)),
+                               trimws(st$VECTOR), sep = "_"))
+  st <- st[order(!grepl("^[0-9]+$", st$WBAN)), , drop = FALSE]
+  st <- st[!duplicated(st$STATION_DIR), , drop = FALSE]
+  rownames(st) <- NULL
+  st
+}
+
+.crn_resolve_station <- function(stations, station) {
+  key <- .crn_norm_name(stations$STATION_DIR)
+  q <- .crn_norm_name(station)
+  exact <- which(key == q)
+  if (length(exact) == 1L) return(stations[exact, , drop = FALSE])
+  hits <- which(grepl(q, key, fixed = TRUE))
+  if (length(hits) == 0L)
+    stop(sprintf("No station matches '%s'.", station))
+  if (length(hits) > 1L)
+    stop(sprintf("'%s' matches several stations: %s. Use a full station name.",
+                 station, paste(stations$STATION_DIR[hits], collapse = ", ")))
+  stations[hits, , drop = FALSE]
+}
+
+.crn_parse_listing <- function(lines, year) {
+  prefix <- sprintf("CRNS0101-05-%d-", as.integer(year))
+  pat <- sprintf("%s[^\"<>/ ]+\\.txt", prefix)
+  m <- unlist(regmatches(lines, gregexpr(pat, lines)))
+  if (length(m) == 0L) return(character())
+  sort(unique(sub("\\.txt$", "", substring(m, nchar(prefix) + 1L))))
+}
+
+.crn_check_station_years <- function(station_dir, years, listings) {
+  has <- vapply(as.character(years),
+                function(y) station_dir %in% listings[[y]], logical(1))
+  if (!any(has))
+    stop(sprintf("Station %s has no sub-hourly file for any requested year (%s).",
+                 station_dir, paste(years, collapse = ", ")))
+  if (!all(has))
+    warning(sprintf("Station %s has no sub-hourly file for year(s): %s.",
+                    station_dir, paste(years[!has], collapse = ", ")))
+  invisible(NULL)
+}
+
+.crn_nearest_station <- function(stations, lon, lat, years, network, listings) {
+  cand <- stations
+  if (!is.null(network))
+    cand <- cand[cand$NETWORK %in% network, , drop = FALSE]
+  has_all <- vapply(cand$STATION_DIR, function(d)
+    all(vapply(as.character(years), function(y) d %in% listings[[y]], logical(1))),
+    logical(1))
+  cand <- cand[has_all, , drop = FALSE]
+  if (nrow(cand) == 0L)
+    stop(sprintf("No station in network(s) %s has sub-hourly data for every year of %s.",
+                 if (is.null(network)) "<any>" else paste(network, collapse = ", "),
+                 paste(years, collapse = ", ")))
+  cand$dist_km <- .crn_haversine(lon, lat, cand$LONGITUDE, cand$LATITUDE)
+  cand[which.min(cand$dist_km), , drop = FALSE]
+}

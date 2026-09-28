@@ -1,0 +1,12 @@
+WBAN	COUNTRY	STATE	LOCATION	VECTOR	NAME	LATITUDE	LONGITUDE	ELEVATION	STATUS	COMMISSIONING	CLOSING	OPERATION	PAIRING	NETWORK	STATION_ID
+UN	US	AK	Bethel	87 WNW	FWS, Yukon Delta National Wildlife Refuge (South Volcano Lake)	61.34	-164.07	153	Commissioned	2019-09-23 00:00:00.0		Operational		USCRN	7800
+26656	US	AK	Bethel	87 WNW	FWS, Yukon Delta National Wildlife Refuge (South Volcano Lake)	61.34	-164.07	153	Commissioned	2019-09-23 00:00:00.0		Operational		USCRN	1800
+26563	US	AK	Kenai	29 ENE	Kenai National Wildlife Refuge (Kenai Moose Research Center)	60.72	-150.44	282	Commissioned	2011-09-12 00:00:00.0		Operational		USCRN	1753
+27516	US	AK	Utqiaġvik formerly Barrow	4 ENE	NOAA Earth System Res. Lab. Observatory at Utqiaġvik (formerly Barrow)	71.32	-156.61	15	Commissioned	2013-07-22 00:00:00.0		Operational		USCRN	1007
+NA	US	VA	Sterling	0 N	Sterling HCN	38.97	-77.48	287	Test-site		2008-02-20 00:00:00.0	Closed		USCRN	1305
+03075	US	NM	Dulce	1 NW	BIA Branch of Forestry	36.93	-107	6806	Non-comissioned		2011-03-04 00:00:00.0	Abandoned		USRCRN	1650
+90001	US	AK	Nearer	1 N	Synthetic test station	60.75	-150.4	300	Commissioned	2015-01-01 00:00:00.0		Operational		USCRN	9001
+90002	US	AK	Farther	9 S	Synthetic test station	60.2	-150.1	300	Commissioned	2015-01-01 00:00:00.0		Operational		USCRN	9002
+90003	US	GA	Newton	8 W	Synthetic test station	31.3	-84.5	100	Commissioned	2015-01-01 00:00:00.0		Operational		USCRN	9003
+90004	US	GA	Newton	11 SW	Synthetic test station	31.2	-84.6	100	Commissioned	2015-01-01 00:00:00.0		Operational		USCRN	9004
+90005	US	MS	Newton	5 ENE	Synthetic test station	32.3	-89.1	100	Commissioned	2015-01-01 00:00:00.0		Operational		USCRN	9005
