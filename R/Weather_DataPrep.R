@@ -312,3 +312,193 @@
                     paste(all_na, collapse = ", ")))
   if (missing_to_na) masked else df
 }
+
+.crn_fetch_years <- function(station_dir, yrs, tmp, label) {
+  fetch <- function(y) .crn_download_year(station_dir, y, tmp)
+  req <- lapply(yrs$required, fetch)
+  missing <- yrs$required[vapply(req, is.null, logical(1))]
+  if (length(missing) > 0L)
+    warning(sprintf("Period %s: no data file for year(s) %s.", label,
+                    paste(missing, collapse = ", ")))
+  pad <- lapply(yrs$padding, fetch)
+  files <- Filter(Negate(is.null), c(req, pad))
+  if (length(files) == 0L)
+    stop(sprintf("Period %s: no data files could be downloaded for station %s.",
+                 label, station_dir))
+  unlist(files, use.names = FALSE)
+}
+
+.crn_write_period_csv <- function(df, out_dir, station_dir, label) {
+  out <- df
+  out$Date_Time <- format(out$Date_Time, "%Y-%m-%d %H:%M:%S")
+  path <- file.path(out_dir, sprintf("%s_%s.csv", station_dir, label))
+  readr::write_csv(out, path)
+  invisible(path)
+}
+
+#' Download NOAA USCRN sub-hourly station data
+#'
+#' Downloads 5-minute U.S. Climate Reference Network (USCRN) observations for a
+#' named station, or for the nearest station with data to a coordinate, for one
+#' or more date periods. Column names are attached, a local-standard-time
+#' \code{Date_Time} column is added, and each period is trimmed to the
+#' requested days. Raw NOAA files are downloaded to a temporary directory and
+#' always deleted; only the final, header-amended data is returned or written.
+#'
+#' @details
+#' \strong{Data source.} NOAA NCEI \code{subhourly01} product
+#' (\url{https://www.ncei.noaa.gov/pub/data/uscrn/products/subhourly01/}). Year
+#' files are organised by UTC year; the function fetches only the year files
+#' each period needs, plus the neighbouring year when a period ends on 31 Dec
+#' (stations west of Greenwich) or starts on 1 Jan (stations east of
+#' Greenwich). Each year file is downloaded once per call and shared across
+#' periods.
+#'
+#' \strong{Station selection.} With \code{station}, an exact directory name
+#' (e.g. \code{"AK_Kenai_29_ENE"}) or a unique partial match (e.g.
+#' \code{"Kenai"}) is used; matching ignores case and treats spaces and
+#' underscores alike. With \code{coords}, stations in \code{network} are ranked
+#' by great-circle distance and the closest one that has a data file for every
+#' year the periods touch is used; stations without data are skipped. All
+#' periods in one call use the same station. The station table has three
+#' \code{NETWORK} values: \code{"USCRN"} (the core network with the full sensor
+#' suite), \code{"USRCRN"} and \code{"Alabama-USRCRN"}, which lack most
+#' sensors.
+#'
+#' \strong{Time.} \code{Date_Time} is \code{POSIXct} in Local Standard Time
+#' (no daylight saving), with the zone derived from the station's own
+#' \code{LST} and \code{UTC} columns (e.g. \code{Etc/GMT+9} for Alaska Kenai).
+#' It marks the \emph{end} of each 5-minute interval, so a \code{00:00} row
+#' belongs to the previous day's data and \code{as.Date(Date_Time)} places it
+#' in the next day. Each period is trimmed to
+#' \code{(start 00:00, end + 1 day 00:00]}, giving 288 rows per day. A warning
+#' is issued when fewer rows are found.
+#'
+#' \strong{Dates are day-exact.} Unlike \code{\link{run_micro_big_nichemap}} and
+#' \code{\link{package_climate}}, which snap periods to whole months, the exact
+#' start and end days are kept, so period labels look like
+#' \code{20240101_to_20240331}.
+#'
+#' \strong{Missing values.} With \code{missing_to_na = TRUE}, NOAA sentinels
+#' become \code{NA}: -9999 for air, surface and soil temperature, precipitation,
+#' relative humidity and wetness; -99999 for solar radiation; -99 for soil
+#' moisture and wind speed. QC flag columns are kept, but values are not
+#' masked by flag (a flag of 3 does not always come with a sentinel). A warning
+#' names any sensor column with no valid data in a period.
+#'
+#' \strong{Files.} If \code{out_dir} is given, one CSV per period is written
+#' as \code{{STATION_DIR}_{period_label}.csv}; existing files are replaced.
+#' \code{Date_Time} is written as local-time text (\code{\%Y-\%m-\%d \%H:\%M:\%S}).
+#' The date and time columns are text with leading zeros (e.g. \code{"0005"}),
+#' so read the CSV back with those columns as character.
+#'
+#' Unlike most functions in this package, the data is returned visibly.
+#'
+#' @param station Character. Station name, e.g. \code{"AK_Kenai_29_ENE"} or
+#'   \code{"Kenai"}. Supply exactly one of \code{station} or \code{coords}. No
+#'   \code{network} filter is applied to an explicit name.
+#' @param coords Location used to find the nearest station: a numeric
+#'   \code{c(lon, lat)} in WGS84, an \code{sf}/\code{sfc} object or
+#'   \code{SpatVector} (reprojected to WGS84; the centroid is used for
+#'   non-point geometry), or a \code{SpatRaster} (centroid of its extent).
+#' @param dates Either a length-2 \code{Date} vector (one period) or a
+#'   \code{data.frame} with \code{Date} columns \code{Start_Dates} and
+#'   \code{End_Dates} (one row per period). Day-exact.
+#' @param network Character vector of networks considered when resolving
+#'   \code{coords}: \code{"USCRN"} (default), \code{"USRCRN"},
+#'   \code{"Alabama-USRCRN"}, several of these, or \code{NULL} for all.
+#' @param out_dir Optional directory. If given (created if missing), one CSV per
+#'   period is written there.
+#' @param missing_to_na Logical. Convert NOAA missing-value sentinels to
+#'   \code{NA}. Default \code{TRUE}.
+#' @param max_dist_km Numeric. A warning is issued when the station chosen from
+#'   \code{coords} is farther than this many kilometres. Default 100.
+#'
+#' @return For a length-2 \code{Date} vector, a \code{data.frame} with the 23 CRN
+#'   sub-hourly columns plus \code{Date_Time}. For a \code{data.frame} of dates,
+#'   a named list of such data.frames, one per row, named by period label
+#'   (\code{YYYYMMDD_to_YYYYMMDD}), even when there is one row.
+#'
+#' @seealso \url{https://www.ncei.noaa.gov/access/crn/} for the CRN network
+#'   documentation, and \code{\link{package_climate}} for the AORC-based climate
+#'   pipeline.
+#'
+#' @examples
+#' \dontrun{
+#' # One period, by station name
+#' kenai <- get_NOAACRN_data(
+#'   station = "AK_Kenai_29_ENE",
+#'   dates = as.Date(c("2024-01-01", "2024-03-31"))
+#' )
+#'
+#' # Several periods, nearest station to a point, saved as CSVs
+#' periods <- data.frame(
+#'   Start_Dates = as.Date(c("2023-10-01", "2024-10-01")),
+#'   End_Dates   = as.Date(c("2024-03-31", "2025-03-31"))
+#' )
+#' res <- get_NOAACRN_data(coords = c(-150.44, 60.72), dates = periods,
+#'                         out_dir = "D:/Data/NOAA_CRN")
+#' names(res)
+#' }
+#' @export
+get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
+                             network = "USCRN", out_dir = NULL,
+                             missing_to_na = TRUE, max_dist_km = 100) {
+  if (is.null(station) == is.null(coords))
+    stop("Supply exactly one of `station` or `coords`.")
+  if (!is.null(station) &&
+      (!is.character(station) || length(station) != 1L || is.na(station)))
+    stop("`station` must be a single character string.")
+  per <- .crn_normalize_dates(dates)
+  periods <- per$periods
+
+  tmp <- tempfile("crn_")
+  dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+
+  stations <- .crn_stations()
+  req_years <- sort(unique(unlist(lapply(seq_len(nrow(periods)), function(i)
+    seq(.crn_year(periods$start[i]), .crn_year(periods$end[i]))))))
+  listings <- stats::setNames(lapply(req_years, .crn_year_listing),
+                              as.character(req_years))
+
+  if (!is.null(station)) {
+    st <- .crn_resolve_station(stations, station)
+    .crn_check_station_years(st$STATION_DIR, req_years, listings)
+    message(sprintf("Using station %s (%s).", st$STATION_DIR, st$NETWORK))
+  } else {
+    ll <- .crn_coords_to_lonlat(coords)
+    st <- .crn_nearest_station(stations, ll[["lon"]], ll[["lat"]], req_years,
+                               network, listings)
+    message(sprintf("Using station %s (%s), %.1f km from the requested location.",
+                    st$STATION_DIR, st$NETWORK, st$dist_km))
+    if (st$dist_km > max_dist_km)
+      warning(sprintf("Nearest station with data is %.1f km away (max_dist_km = %s).",
+                      st$dist_km, format(max_dist_km)))
+  }
+  station_dir <- st$STATION_DIR
+  station_lon <- st$LONGITUDE
+
+  if (!is.null(out_dir))
+    dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  results <- vector("list", nrow(periods))
+  names(results) <- periods$label
+  for (i in seq_len(nrow(periods))) {
+    start <- periods$start[i]
+    end <- periods$end[i]
+    label <- periods$label[i]
+    yrs <- .crn_years_needed(start, end, station_lon)
+    files <- .crn_fetch_years(station_dir, yrs, tmp, label)
+    raw <- do.call(rbind, lapply(files, .crn_read_file))
+    tz <- .crn_lst_tz(raw)
+    df <- .crn_finalize(raw, start, end, tz, missing_to_na, label)
+    if (!is.null(out_dir))
+      .crn_write_period_csv(df, out_dir, station_dir, label)
+    results[[i]] <- df
+    rm(raw)
+    gc()
+  }
+
+  if (per$is_df) results else results[[1L]]
+}
