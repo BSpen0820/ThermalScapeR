@@ -8,43 +8,6 @@
   sprintf("%s_to_%s", format(start, "%Y%m%d"), format(end, "%Y%m%d"))
 }
 
-.crn_haversine <- function(lon1, lat1, lon2, lat2) {
-  rad <- pi / 180
-  dlat <- (lat2 - lat1) * rad
-  dlon <- (lon2 - lon1) * rad
-  a <- sin(dlat / 2)^2 + cos(lat1 * rad) * cos(lat2 * rad) * sin(dlon / 2)^2
-  2 * 6371.0088 * asin(pmin(1, sqrt(a)))
-}
-
-.crn_normalize_dates <- function(dates) {
-  if (is.data.frame(dates)) {
-    if (!all(c("Start_Dates", "End_Dates") %in% names(dates)))
-      stop("`dates` data.frame must have columns Start_Dates and End_Dates.")
-    start <- dates$Start_Dates
-    end <- dates$End_Dates
-    is_df <- TRUE
-  } else {
-    if (length(dates) != 2L)
-      stop("`dates` must be a length-2 Date vector or a data.frame with Start_Dates/End_Dates.")
-    start <- dates[1L]
-    end <- dates[2L]
-    is_df <- FALSE
-  }
-  if (!inherits(start, "Date") || !inherits(end, "Date"))
-    stop("`dates` must be of class Date.")
-  if (length(start) == 0L)
-    stop("`dates` must not be empty.")
-  if (anyNA(start) || anyNA(end))
-    stop("`dates` must not contain NA.")
-  if (any(end < start))
-    stop("An end date is before start date in `dates`.")
-  label <- vapply(seq_along(start),
-                  function(i) .crn_period_label(start[i], end[i]), character(1))
-  list(periods = data.frame(start = start, end = end, label = label,
-                            stringsAsFactors = FALSE),
-       is_df = is_df)
-}
-
 # Required years are those the period touches. Padding years cover the
 # end-of-interval stamps that spill into the neighbouring UTC-year file.
 .crn_years_needed <- function(start, end, lon) {
@@ -55,35 +18,6 @@
   if (lon > 0 && format(start, "%m-%d") == "01-01")
     padding <- c(.crn_year(start) - 1L, padding)
   list(required = required, padding = padding)
-}
-
-.crn_coords_to_lonlat <- function(coords) {
-  if (is.numeric(coords)) {
-    if (length(coords) != 2L || anyNA(coords))
-      stop("Numeric `coords` must be c(lon, lat).")
-    lon <- coords[[1L]]
-    lat <- coords[[2L]]
-  } else {
-    geom <- if (inherits(coords, "SpatRaster")) {
-      sf::st_as_sf(terra::as.polygons(terra::ext(coords), crs = terra::crs(coords)))
-    } else if (inherits(coords, "SpatVector")) {
-      sf::st_as_sf(coords)
-    } else if (inherits(coords, c("sf", "sfc"))) {
-      coords
-    } else {
-      stop("`coords` must be c(lon, lat), an sf/sfc object, a SpatVector, or a SpatRaster.")
-    }
-    g <- sf::st_geometry(geom)
-    if (is.na(sf::st_crs(g)))
-      stop("Spatial `coords` must have a CRS.")
-    g <- sf::st_transform(g, 4326)
-    ctr <- sf::st_coordinates(sf::st_centroid(sf::st_union(g)))
-    lon <- unname(ctr[1L, "X"])
-    lat <- unname(ctr[1L, "Y"])
-  }
-  if (abs(lat) > 90 || abs(lon) > 180)
-    stop("`coords` are out of range (lon within +/-180, lat within +/-90).")
-  c(lon = lon, lat = lat)
 }
 
 .crn_ascii <- function(x) {
@@ -169,7 +103,7 @@
     stop(sprintf("No station in network(s) %s has sub-hourly data for every year of %s.",
                  if (is.null(network)) "<any>" else paste(network, collapse = ", "),
                  paste(years, collapse = ", ")))
-  cand$dist_km <- .crn_haversine(lon, lat, cand$LONGITUDE, cand$LATITUDE)
+  cand$dist_km <- .station_haversine(lon, lat, cand$LONGITUDE, cand$LATITUDE)
   cand[which.min(cand$dist_km), , drop = FALSE]
 }
 
@@ -463,7 +397,7 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
   if (!is.null(station) &&
       (!is.character(station) || length(station) != 1L || is.na(station)))
     stop("`station` must be a single character string.")
-  per <- .crn_normalize_dates(dates)
+  per <- .station_normalize_dates(dates)
   periods <- per$periods
 
   tmp <- tempfile("crn_")
@@ -481,7 +415,7 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
     .crn_check_station_years(st$STATION_DIR, req_years, listings)
     message(sprintf("Using station %s (%s).", st$STATION_DIR, st$NETWORK))
   } else {
-    ll <- .crn_coords_to_lonlat(coords)
+    ll <- .station_coords_to_lonlat(coords)
     st <- .crn_nearest_station(stations, ll[["lon"]], ll[["lat"]], req_years,
                                network, listings)
     message(sprintf("Using station %s (%s), %.1f km from the requested location.",
