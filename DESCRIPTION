@@ -27,6 +27,7 @@ Imports:
     solaR,
     zoo,
     readr,
+    jsonlite,
     microclimfPara,
     ggplot2
 Suggests:
