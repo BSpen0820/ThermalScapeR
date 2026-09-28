@@ -166,3 +166,58 @@
   cand$dist_km <- .crn_haversine(lon, lat, cand$LONGITUDE, cand$LATITUDE)
   cand[which.min(cand$dist_km), , drop = FALSE]
 }
+
+.crn_base_url <- "https://www.ncei.noaa.gov/pub/data/uscrn/products"
+
+.crn_http_get <- function(url, dest) {
+  utils::download.file(url, dest, mode = "wb", quiet = TRUE)
+}
+
+# Returns "ok" or "not_found"; retries other failures, then stops.
+.crn_download <- function(url, dest, retries = 1) {
+  old <- options(timeout = max(600, getOption("timeout")))
+  on.exit(options(old), add = TRUE)
+  res <- NULL
+  for (attempt in seq_len(retries + 1L)) {
+    msgs <- character()
+    res <- tryCatch(
+      withCallingHandlers(
+        .crn_http_get(url, dest),
+        warning = function(w) {
+          msgs <<- c(msgs, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }),
+      error = function(e) e)
+    if (!inherits(res, "error")) return("ok")
+    unlink(dest)
+    if (grepl("404", paste(c(msgs, conditionMessage(res)), collapse = " "), fixed = TRUE))
+      return("not_found")
+  }
+  stop(sprintf("Failed to download %s: %s", url, conditionMessage(res)))
+}
+
+.crn_download_year <- function(station_dir, year, tmp) {
+  fname <- sprintf("CRNS0101-05-%d-%s.txt", as.integer(year), station_dir)
+  dest <- file.path(tmp, fname)
+  if (file.exists(dest)) return(dest)
+  url <- sprintf("%s/subhourly01/%d/%s", .crn_base_url, as.integer(year), fname)
+  if (identical(.crn_download(url, dest), "not_found")) return(NULL)
+  dest
+}
+
+.crn_year_listing <- function(year) {
+  dest <- tempfile(fileext = ".html")
+  on.exit(unlink(dest), add = TRUE)
+  url <- sprintf("%s/subhourly01/%d/", .crn_base_url, as.integer(year))
+  if (identical(.crn_download(url, dest), "not_found")) return(character())
+  .crn_parse_listing(readLines(dest, warn = FALSE), year)
+}
+
+.crn_stations <- function() {
+  dest <- tempfile(fileext = ".tsv")
+  on.exit(unlink(dest), add = TRUE)
+  url <- sprintf("%s/stations.tsv", .crn_base_url)
+  if (identical(.crn_download(url, dest), "not_found"))
+    stop("Could not find the USCRN station table at ", url)
+  .crn_parse_stations(dest)
+}
