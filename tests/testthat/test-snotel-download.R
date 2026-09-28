@@ -48,6 +48,34 @@ test_that(".snotel_download raises the timeout locally and restores it", {
   expect_identical(getOption("timeout"), before)
 })
 
+test_that(".snotel_download does not leak a warning to the console on a recovered failure", {
+  dest <- withr::local_tempfile()
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    .snotel_http_get = function(url, dest) {
+      calls <<- calls + 1L
+      if (calls == 1L) {
+        warning("cannot open URL 'x': HTTP status was '500 Internal Server Error'")
+        stop("cannot open URL 'x'")
+      }
+      writeLines("x", dest)
+    }
+  )
+  expect_no_warning(.snotel_download("https://example.org/a", dest))
+  expect_equal(calls, 2L)
+})
+
+test_that(".snotel_download does not leak a warning to the console on a permanent failure", {
+  dest <- withr::local_tempfile()
+  testthat::local_mocked_bindings(
+    .snotel_http_get = function(url, dest) {
+      warning("cannot open URL 'x': HTTP status was '404 Not Found'")
+      stop("cannot open URL 'x'")
+    }
+  )
+  expect_no_warning(expect_error(.snotel_download("https://example.org/a", dest), "Failed to download"))
+})
+
 test_that(".snotel_stations always requests activeOnly=false and parses the result", {
   seen_url <- NULL
   testthat::local_mocked_bindings(

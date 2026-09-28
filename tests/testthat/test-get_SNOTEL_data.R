@@ -116,6 +116,23 @@ test_that("when every period fails the call stops", {
     "All periods failed")
 })
 
+test_that("HOURLY on a station with no recorded time zone stops with a clear error", {
+  env <- new.env()
+  no_tz_json <- withr::local_tempfile(fileext = ".json")
+  writeLines(
+    '[{"stationTriplet":"999:ZZ:COOP","stationId":"999","stateCode":"ZZ","networkCode":"COOP","name":"No TZ Site","elevation":1000,"latitude":40.0,"longitude":-100.0,"dataTimeZone":null,"beginDate":"1990-01-01 00:00","endDate":"2100-01-01 00:00"}]',
+    no_tz_json)
+  mock_snotel_network(env, stations_json = no_tz_json, data_fn = wteq_only_json)
+  expect_error(
+    suppressMessages(get_SNOTEL_data(station = "No TZ Site", network = NULL, duration = "HOURLY",
+                                     dates = as.Date(c("2024-01-01", "2024-01-01")))),
+    "time zone")
+  # DAILY doesn't need a time zone, so the same station works fine
+  out <- suppressMessages(get_SNOTEL_data(station = "No TZ Site", network = NULL,
+                                          dates = as.Date(c("2024-01-01", "2024-01-02"))))
+  expect_equal(nrow(out), 2L)
+})
+
 test_that("input validation errors are clear", {
   d <- as.Date(c("2024-01-01", "2024-01-02"))
   expect_error(get_SNOTEL_data(dates = d), "exactly one")

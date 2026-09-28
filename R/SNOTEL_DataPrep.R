@@ -53,7 +53,11 @@
   on.exit(options(old), add = TRUE)
   res <- NULL
   for (attempt in seq_len(retries + 1L)) {
-    res <- tryCatch(.snotel_http_get(url, dest), error = function(e) e)
+    res <- tryCatch(
+      withCallingHandlers(
+        .snotel_http_get(url, dest),
+        warning = function(w) invokeRestart("muffleWarning")),
+      error = function(e) e)
     if (!inherits(res, "error")) return(invisible(NULL))
     unlink(dest)
   }
@@ -373,7 +377,11 @@ get_SNOTEL_data <- function(station = NULL, state = NULL, coords = NULL, dates,
   if (!is.null(out_dir))
     dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-  tz <- sprintf("Etc/GMT%+d", -round(st$dataTimeZone))
+  if (identical(duration, "HOURLY") && is.na(st$dataTimeZone))
+    stop(sprintf(
+      "Station %s (%s) has no recorded time zone, so HOURLY timestamps cannot be labeled reliably.",
+      st$name, st$stationTriplet))
+  tz <- if (is.na(st$dataTimeZone)) "UTC" else sprintf("Etc/GMT%+d", -round(st$dataTimeZone))
 
   run_period <- function(i) {
     start <- periods$start[i]
