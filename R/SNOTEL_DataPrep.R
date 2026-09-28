@@ -31,3 +31,31 @@
                     cand$stationTriplet[hits]), collapse = "; ")))
   cand[hits, , drop = FALSE]
 }
+
+.snotel_base_url <- "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1"
+
+.snotel_http_get <- function(url, dest) {
+  utils::download.file(url, dest, mode = "wb", quiet = TRUE)
+}
+
+# Any non-2xx response is a real failure here: unlike CRN, "no data" comes
+# back as HTTP 200 with an empty JSON array, never a 404.
+.snotel_download <- function(url, dest, retries = 1) {
+  old <- options(timeout = max(600, getOption("timeout")))
+  on.exit(options(old), add = TRUE)
+  res <- NULL
+  for (attempt in seq_len(retries + 1L)) {
+    res <- tryCatch(.snotel_http_get(url, dest), error = function(e) e)
+    if (!inherits(res, "error")) return(invisible(NULL))
+    unlink(dest)
+  }
+  stop(sprintf("Failed to download %s: %s", url, conditionMessage(res)))
+}
+
+.snotel_stations <- function() {
+  dest <- tempfile(fileext = ".json")
+  on.exit(unlink(dest), add = TRUE)
+  url <- sprintf("%s/stations?activeOnly=false", .snotel_base_url)
+  .snotel_download(url, dest)
+  .snotel_parse_stations(dest)
+}
