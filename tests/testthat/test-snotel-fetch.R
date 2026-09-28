@@ -89,3 +89,52 @@ test_that(".snotel_pivot_wide adds a qaFlag column only when present, and builds
   expect_true("WTEQ_qaFlag" %in% names(out))
   expect_identical(out$WTEQ_qaFlag[1:2], c("A", NA_character_))
 })
+
+test_that(".snotel_station_elements lists unique element codes for one duration", {
+  fixture <- testthat::test_path("fixtures", "snotel_station_elements_sample.json")
+  testthat::local_mocked_bindings(
+    .snotel_download = function(url, dest, retries = 1) {
+      expect_match(url, "returnStationElements=true")
+      expect_match(url, "activeOnly=false")
+      file.copy(fixture, dest, overwrite = TRUE)
+      invisible(NULL)
+    }
+  )
+  expect_identical(.snotel_station_elements("312:ID:SNTL", "DAILY"), c("WTEQ", "STO"))
+  expect_identical(.snotel_station_elements("312:ID:SNTL", "HOURLY"), c("WTEQ", "PTEMP"))
+})
+
+test_that(".snotel_fetch resolves elements = '*' via the station's own element list, not a bare wildcard", {
+  elems_fixture <- testthat::test_path("fixtures", "snotel_station_elements_sample.json")
+  data_fixture <- testthat::test_path("fixtures", "snotel_data_sample.json")
+  seen_urls <- character()
+  testthat::local_mocked_bindings(
+    .snotel_download = function(url, dest, retries = 1) {
+      seen_urls <<- c(seen_urls, url)
+      if (grepl("returnStationElements", url, fixed = TRUE)) {
+        file.copy(elems_fixture, dest, overwrite = TRUE)
+      } else {
+        file.copy(data_fixture, dest, overwrite = TRUE)
+      }
+      invisible(NULL)
+    }
+  )
+  df <- .snotel_fetch("312:ID:SNTL", "*", "DAILY", as.Date("2024-01-01"), as.Date("2024-01-02"))
+  data_url <- seen_urls[!grepl("returnStationElements", seen_urls, fixed = TRUE)]
+  expect_length(data_url, 1L)
+  expect_match(data_url, "WTEQ:\\*:\\*")
+  expect_match(data_url, "STO:\\*:\\*")
+  expect_false(grepl("elements=\\*&", data_url))
+})
+
+test_that(".snotel_fetch returns empty (not an error) when the station has no elements for this duration", {
+  elems_fixture <- testthat::test_path("fixtures", "snotel_station_elements_sample.json")
+  testthat::local_mocked_bindings(
+    .snotel_download = function(url, dest, retries = 1) {
+      file.copy(elems_fixture, dest, overwrite = TRUE)
+      invisible(NULL)
+    }
+  )
+  df <- .snotel_fetch("312:ID:SNTL", "*", "MONTHLY", as.Date("2024-01-01"), as.Date("2024-01-02"))
+  expect_equal(nrow(df), 0L)
+})

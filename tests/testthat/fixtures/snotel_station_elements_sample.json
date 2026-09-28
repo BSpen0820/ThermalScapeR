@@ -1,0 +1,6 @@
+[{"stationTriplet":"312:ID:SNTL","stationElements":[
+  {"elementCode":"WTEQ","durationName":"DAILY"},
+  {"elementCode":"WTEQ","durationName":"HOURLY"},
+  {"elementCode":"STO","heightDepth":-20,"durationName":"DAILY"},
+  {"elementCode":"PTEMP","heightDepth":8,"durationName":"HOURLY"}
+]}]

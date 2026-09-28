@@ -59,5 +59,5 @@ test_that(".snotel_stations always requests activeOnly=false and parses the resu
   )
   st <- .snotel_stations()
   expect_match(seen_url, "activeOnly=false")
-  expect_equal(nrow(st), 10L)
+  expect_equal(nrow(st), 11L)
 })

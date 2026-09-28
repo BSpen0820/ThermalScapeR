@@ -1,6 +1,6 @@
 test_that(".snotel_parse_stations parses station JSON with typed dates", {
   st <- .snotel_parse_stations(snotel_stations_fixture())
-  expect_equal(nrow(st), 10L)
+  expect_equal(nrow(st), 11L)
   expect_s3_class(st$beginDate, "Date")
   expect_s3_class(st$endDate, "Date")
   expect_equal(st$beginDate[st$stationTriplet == "312:ID:SNTL"], as.Date("1979-10-01"))
@@ -22,6 +22,24 @@ test_that(".snotel_resolve_station errors on an ambiguous name and disambiguates
   expect_error(.snotel_resolve_station(st, "Trail Creek"), "701:MT:SNTL")
   expect_identical(.snotel_resolve_station(st, "Trail Creek", state = "MT")$stationTriplet,
                    "701:MT:SNTL")
+})
+
+test_that(".snotel_resolve_station uses `network` to disambiguate a same-name, same-state collision", {
+  st <- .snotel_parse_stations(snotel_stations_fixture())
+  # "Trail Creek" also exists as a SNOW course in ID (704:ID:SNOW); state
+  # alone cannot disambiguate it from the SNTL station (700:ID:SNTL), but
+  # `network` can.
+  expect_identical(
+    .snotel_resolve_station(st, "Trail Creek", state = "ID", network = c("SNTL", "SNTLT"))$stationTriplet,
+    "700:ID:SNTL")
+})
+
+test_that(".snotel_resolve_station still errors, listing every candidate, when network cannot disambiguate", {
+  st <- .snotel_parse_stations(snotel_stations_fixture())
+  expect_error(.snotel_resolve_station(st, "Trail Creek", state = "ID", network = NULL), "700:ID:SNTL")
+  expect_error(.snotel_resolve_station(st, "Trail Creek", state = "ID", network = NULL), "704:ID:SNOW")
+  # network given but every candidate is outside it: still ambiguous, not silently empty
+  expect_error(.snotel_resolve_station(st, "Trail Creek", state = "ID", network = "SCAN"), "700:ID:SNTL")
 })
 
 test_that(".snotel_resolve_station errors clearly on no match", {

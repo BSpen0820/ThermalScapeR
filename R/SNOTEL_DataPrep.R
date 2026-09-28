@@ -11,21 +11,29 @@
 
 .snotel_norm_name <- function(x) tolower(trimws(x))
 
-.snotel_resolve_station <- function(stations, station, state = NULL) {
+.snotel_resolve_station <- function(stations, station, state = NULL, network = NULL) {
   cand <- stations
   if (!is.null(state))
     cand <- cand[cand$stateCode == state, , drop = FALSE]
   key <- .snotel_norm_name(cand$name)
   q <- .snotel_norm_name(station)
   exact <- which(key == q)
-  if (length(exact) == 1L) return(cand[exact, , drop = FALSE])
-  hits <- which(grepl(q, key, fixed = TRUE))
+  hits <- if (length(exact) >= 1L) exact else which(grepl(q, key, fixed = TRUE))
   if (length(hits) == 0L)
     stop(sprintf("No station matches '%s'%s.", station,
                 if (is.null(state)) "" else sprintf(" in state '%s'", state)))
+  # A name can collide across networks (e.g. a SNOTEL site and a manual snow
+  # course of the same name in the same state) -- `state` alone cannot break
+  # that tie, so `network` (the caller's own network filter) is tried next,
+  # but only as a tiebreaker: it narrows only when doing so leaves exactly
+  # one candidate, never silently discarding every match.
+  if (length(hits) > 1L && !is.null(network)) {
+    narrowed <- hits[cand$networkCode[hits] %in% network]
+    if (length(narrowed) == 1L) hits <- narrowed
+  }
   if (length(hits) > 1L)
     stop(sprintf(
-      "'%s' matches several stations: %s. Use `state` to disambiguate.",
+      "'%s' matches several stations: %s. Use `state` and/or `network` to disambiguate.",
       station,
       paste(sprintf("%s (%s, %s)", cand$name[hits], cand$stateCode[hits],
                     cand$stationTriplet[hits]), collapse = "; ")))
@@ -65,6 +73,23 @@
   paste(sprintf("%s:*:*", elements), collapse = ",")
 }
 
+# A bare "*" in the /data endpoint behaves like "*:null:1" and silently
+# drops every element that has a heightDepth or an ordinal > 1 (confirmed
+# live: Banner Summit's soil sensors vanish under a bare "*"). To honour
+# "elements = '*' means everything this station reports", the real element
+# codes are looked up first and each is individually :*:*-qualified.
+.snotel_station_elements <- function(triplet, duration) {
+  dest <- tempfile(fileext = ".json")
+  on.exit(unlink(dest), add = TRUE)
+  url <- sprintf("%s/stations?stationTriplets=%s&returnStationElements=true&activeOnly=false",
+                .snotel_base_url, triplet)
+  .snotel_download(url, dest)
+  st <- jsonlite::fromJSON(dest)
+  if (length(st$stationElements) == 0L) return(character())
+  el <- st$stationElements[[1]]
+  unique(el$elementCode[el$durationName == duration])
+}
+
 .snotel_duration_bounds <- function(start, end, duration) {
   if (identical(duration, "HOURLY")) {
     list(begin = sprintf("%s 00:00", format(start, "%Y-%m-%d")),
@@ -81,6 +106,10 @@
 }
 
 .snotel_fetch <- function(triplet, elements, duration, start, end) {
+  if (identical(elements, "*")) {
+    elements <- .snotel_station_elements(triplet, duration)
+    if (length(elements) == 0L) return(.snotel_empty_fetch())
+  }
   bounds <- .snotel_duration_bounds(start, end, duration)
   url <- sprintf(
     "%s/data?stationTriplets=%s&elements=%s&duration=%s&beginDate=%s&endDate=%s&returnFlags=true",
@@ -150,7 +179,8 @@
   out
 }
 
-.snotel_nearest_station <- function(stations, lon, lat, periods, network, try_fn) {
+.snotel_nearest_station <- function(stations, lon, lat, periods, network, try_fn,
+                                    max_candidates = 20L) {
   cand <- stations
   if (!is.null(network)) {
     unknown <- setdiff(network, unique(stations$networkCode))
@@ -169,12 +199,20 @@
       if (is.null(network)) "<any>" else paste(network, collapse = ", ")))
   cand$dist_km <- .station_haversine(lon, lat, cand$longitude, cand$latitude)
   cand <- cand[order(cand$dist_km), , drop = FALSE]
-  for (i in seq_len(nrow(cand))) {
+  # An unbounded fallback here means a bad `elements` code or a date outside
+  # any real coverage (the API returns 200/[] for both, not an error) walks
+  # every eligible station one at a time -- for the default network that can
+  # be hundreds of slow round-trips and warnings for what is usually a typo.
+  # Capping bounds the cost and points at the likely cause instead.
+  n_try <- min(nrow(cand), max_candidates)
+  for (i in seq_len(n_try)) {
     if (try_fn(cand[i, , drop = FALSE])) return(cand[i, , drop = FALSE])
     warning(sprintf("Station %s (%s) returned no data; trying the next-nearest station.",
                     cand$name[i], cand$stationTriplet[i]))
   }
-  stop("No candidate station returned data for the requested period(s).")
+  stop(sprintf(
+    "No candidate station returned data for the requested period(s) after trying %d station(s); check `elements` and `dates`.",
+    n_try))
 }
 
 .snotel_write_period_csv <- function(df, out_dir, station_id, label) {
@@ -315,7 +353,7 @@ get_SNOTEL_data <- function(station = NULL, state = NULL, coords = NULL, dates,
   stations <- .snotel_stations()
 
   if (!is.null(station)) {
-    st <- .snotel_resolve_station(stations, station, state)
+    st <- .snotel_resolve_station(stations, station, state, network)
     message(sprintf("Using station %s (%s, %s).", st$name, st$stationTriplet, st$networkCode))
   } else {
     ll <- .station_coords_to_lonlat(coords)

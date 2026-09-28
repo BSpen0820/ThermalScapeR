@@ -41,6 +41,18 @@ test_that(".snotel_nearest_station rejects unknown network names", {
                "Unknown network")
 })
 
+test_that(".snotel_nearest_station stops after max_candidates attempts, not every eligible station", {
+  st <- .snotel_parse_stations(snotel_stations_fixture())
+  periods <- data.frame(start = as.Date("2020-01-01"), end = as.Date("2020-01-02"))
+  tried <- character()
+  try_fn <- function(cand) { tried <<- c(tried, cand$stationTriplet); FALSE }
+  expect_error(
+    suppressWarnings(.snotel_nearest_station(st, -106.50, 39.50, periods, "SNTL", try_fn,
+                                             max_candidates = 1L)),
+    "1 station")
+  expect_length(tried, 1L)
+})
+
 test_that(".snotel_nearest_station's period-of-record filter requires overlap with every requested period", {
   st <- .snotel_parse_stations(snotel_stations_fixture())
   periods <- data.frame(start = as.Date(c("2010-01-01", "2024-01-01")),
