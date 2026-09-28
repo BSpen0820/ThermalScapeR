@@ -29,7 +29,8 @@ Imports:
     readr,
     jsonlite,
     microclimfPara,
-    ggplot2
+    ggplot2,
+    arcgislayers
 Suggests:
     rhdf5,
     ncdf4,

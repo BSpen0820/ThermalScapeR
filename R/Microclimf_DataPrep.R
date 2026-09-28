@@ -2141,6 +2141,36 @@ download_soil <- function(dtm,
     fine   = soildata_fine
   )))
 }
+
+# Shared aoi -> WGS84 bbox extraction, used by download_aorc() and
+# download_arcgis_landcover(). terra::ext() indexes as (xmin, xmax, ymin,
+# ymax) -- NOT the (xmin, ymin, xmax, ymax) order sf::st_bbox() uses -- so
+# the SpatRaster/SpatVector branch is careful not to mix the two.
+.aoi_to_wgs84_bbox <- function(aoi) {
+  if (is.list(aoi) && all(c("geometry", "crs") %in% names(aoi)) && !is.null(aoi$bbox_wgs84)) {
+    bb <- aoi$bbox_wgs84
+    xmin <- as.numeric(bb[1])
+    ymin <- as.numeric(bb[2])
+    xmax <- as.numeric(bb[3])
+    ymax <- as.numeric(bb[4])
+  } else if (inherits(aoi, "SpatRaster") || inherits(aoi, "SpatVector")) {
+    e <- terra::ext(terra::project(aoi, "epsg:4326"))
+    xmin <- as.numeric(e[1])
+    xmax <- as.numeric(e[2])
+    ymin <- as.numeric(e[3])
+    ymax <- as.numeric(e[4])
+  } else if (inherits(aoi, "sf") || inherits(aoi, "sfc")) {
+    bb <- sf::st_bbox(sf::st_transform(aoi, 4326))
+    xmin <- as.numeric(bb["xmin"])
+    ymin <- as.numeric(bb["ymin"])
+    xmax <- as.numeric(bb["xmax"])
+    ymax <- as.numeric(bb["ymax"])
+  } else {
+    stop("aoi must be a SpatRaster, SpatVector, sf object, or named list from define_aoi()")
+  }
+  c(xmin = xmin, ymin = ymin, xmax = xmax, ymax = ymax)
+}
+
 #' Download NOAA AORC Climate Data
 #'
 #' Downloads hourly AORC v1.1 climate data from NOAA's S3 bucket for a given
@@ -2217,20 +2247,11 @@ download_aorc <- function(aoi,
   }
 
   # Extract extent from aoi in WGS84
-  if (is.list(aoi) && all(c("geometry", "crs") %in% names(aoi))) {
-    ext_wgs84 <- aoi$bbox_wgs84
-  } else if (inherits(aoi, "SpatRaster") || inherits(aoi, "SpatVector")) {
-    ext_wgs84 <- terra::ext(terra::project(aoi, "epsg:4326"))
-  } else if (inherits(aoi, "sf") || inherits(aoi, "sfc")) {
-    ext_wgs84 <- sf::st_bbox(sf::st_transform(aoi, 4326))
-  } else {
-    stop("aoi must be a SpatRaster, SpatVector, sf object, or named list from define_aoi()")
-  }
-
-  lon_min <- as.numeric(ext_wgs84[1])
-  lon_max <- as.numeric(ext_wgs84[3])
-  lat_min <- as.numeric(ext_wgs84[2])
-  lat_max <- as.numeric(ext_wgs84[4])
+  bb <- .aoi_to_wgs84_bbox(aoi)
+  lon_min <- unname(bb["xmin"])
+  lon_max <- unname(bb["xmax"])
+  lat_min <- unname(bb["ymin"])
+  lat_max <- unname(bb["ymax"])
 
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -2388,6 +2409,207 @@ download_aorc <- function(aoi,
   return(invisible(log))
 }
 
+# service_url default and known-layer table for download_arcgis_landcover();
+# all 4 Kenai layers share one underlying polygon schema (confirmed against
+# the live service), so the table is only consulted when service_url matches
+# this default -- a different service always requires an explicit numeric
+# layer and field.
+.arcgis_kenai_service_url <- "https://apps.fs.usda.gov/fsgisx02/rest/services/r10/KenaiVegVectorMapService2019/MapServer"
+
+.arcgis_kenai_layer_table <- function() {
+  data.frame(
+    name        = c("DominanceType", "TreeCanopyCover", "TreeSizeClass", "TallShrubCanopyCover"),
+    id          = c(0L, 1L, 2L, 3L),
+    field       = c("DT_Code", "TreeCC", "TreeSize", "TallShrubCC"),
+    label_field = c("Dominance_Type", NA_character_, NA_character_, NA_character_),
+    stringsAsFactors = FALSE
+  )
+}
+
+.arcgis_resolve_layer <- function(service_url, layer, field) {
+  tbl <- .arcgis_kenai_layer_table()
+  row <- if (identical(service_url, .arcgis_kenai_service_url)) {
+    if (is.numeric(layer)) tbl[tbl$id == layer, ] else tbl[tbl$name == layer, ]
+  } else {
+    tbl[0, ]
+  }
+
+  if (nrow(row) == 1) {
+    fld <- if (!is.null(field)) field else row$field
+    # only attach the built-in descriptive label when the default field was kept
+    label_field <- if (identical(fld, row$field)) row$label_field else NA_character_
+    return(list(id = as.integer(row$id), field = fld, label_field = label_field))
+  }
+
+  if (is.null(field)) {
+    stop(sprintf(
+      "Unknown layer '%s' for service_url '%s'. Supply 'field' explicitly, or use one of the built-in Kenai layer names: %s",
+      layer, service_url, paste(tbl$name, collapse = ", ")
+    ))
+  }
+  if (!is.numeric(layer)) {
+    stop("layer must be a numeric layer id when it is not one of the built-in Kenai layer names")
+  }
+  list(id = as.integer(layer), field = field, label_field = NA_character_)
+}
+
+.arcgis_aoi_bbox_sf <- function(aoi) {
+  sf::st_as_sfc(sf::st_bbox(.aoi_to_wgs84_bbox(aoi), crs = sf::st_crs(4326)))
+}
+
+.arcgis_query_layer <- function(service_url, layer_id, fields, filter_geom) {
+  furl <- arcgislayers::arc_open(sprintf("%s/%d", service_url, layer_id))
+  arcgislayers::arc_select(furl, fields = fields, filter_geom = filter_geom)
+}
+
+# The template grid is built from query_extent (the AOI bbox), not from the
+# extent of the returned features -- a single large polygon that merely
+# touches the AOI (e.g. a lake or big forest stand) would otherwise blow the
+# raster out well past the study area.
+.arcgis_rasterize <- function(sf_result, field, res, query_extent, crop_template = NULL) {
+  v <- terra::vect(sf_result)
+  qext <- terra::ext(terra::project(terra::vect(query_extent), terra::crs(v)))
+  template <- terra::rast(qext, resolution = res, crs = terra::crs(v))
+  r <- terra::rasterize(v, template, field = field)
+
+  if (!is.null(crop_template)) {
+    r <- terra::crop(terra::project(r, terra::crs(crop_template)), crop_template)
+  }
+  r
+}
+
+# Attaches a descriptive label column (e.g. Dominance_Type) to a categorical
+# raster's factor levels table, alongside the coded field it was rasterized
+# from (e.g. DT_Code).
+.arcgis_attach_label <- function(r, sf_result, field, label_field) {
+  df <- unique(sf::st_drop_geometry(sf_result)[, c(field, label_field)])
+  lv <- terra::levels(r)[[1]]
+  lv <- merge(lv, df, by = field, all.x = TRUE)
+  # merge() puts the join key first; set.cats() requires the numeric ID column first
+  lv <- lv[order(lv$ID), c("ID", setdiff(names(lv), "ID"))]
+  levels(r) <- lv  # terra registers an S3 method for base `levels<-`; it has no terra::-qualified export
+  r
+}
+
+#' Download and Rasterize Landcover/Vegetation Polygons from an ArcGIS REST Feature Service
+#'
+#' Queries one or more layers of an ArcGIS REST MapServer/FeatureServer feature
+#' service, clips to an area of interest, and rasterizes the result. Defaults
+#' target the USDA Forest Service Kenai Peninsula vegetation map service, but
+#' any ArcGIS REST feature service can be used by supplying \code{service_url},
+#' a numeric \code{layer} id, and \code{field}.
+#'
+#' @details Despite being described as "raster layers" by the Kenai service
+#'   metadata, the layers are polygon feature layers; this function queries
+#'   the polygons via \code{arcgislayers} and rasterizes them with
+#'   \code{terra::rasterize()}, which automatically produces a categorical
+#'   (factor) raster when \code{field} is a character column, or a numeric
+#'   raster otherwise.
+#'
+#'   Built-in Kenai layer names and their default fields:
+#'   \code{"DominanceType"} (\code{DT_Code}), \code{"TreeCanopyCover"}
+#'   (\code{TreeCC}), \code{"TreeSizeClass"} (\code{TreeSize}), and
+#'   \code{"TallShrubCanopyCover"} (\code{TallShrubCC}). \code{field} can be
+#'   used to override the default field for a built-in layer (e.g.
+#'   \code{"Dominance_Type"} for the human-readable label instead of the
+#'   code), and is required when \code{service_url} is not the built-in
+#'   default or \code{layer} is not one of these names.
+#'
+#' @param aoi A SpatRaster, SpatVector, sf object, or named list returned by
+#'   \code{define_aoi()}. Used to derive the bounding box for the query
+#' @param out_dir Directory to save output raster files
+#' @param service_url Base URL of an ArcGIS REST MapServer/FeatureServer.
+#'   Default is the USDA Forest Service Kenai Peninsula vegetation map service
+#' @param layer Character or numeric vector of layers to download. For the
+#'   default \code{service_url}, one or more of \code{"DominanceType"},
+#'   \code{"TreeCanopyCover"}, \code{"TreeSizeClass"},
+#'   \code{"TallShrubCanopyCover"}, or their numeric layer ids. For any other
+#'   service, numeric layer id(s). Default is \code{"DominanceType"}
+#' @param field Character vector of attribute field(s) to rasterize, recycled
+#'   against \code{layer}. \code{NULL} (default) uses the built-in Kenai
+#'   default field for each recognized layer name; required for layers not in
+#'   the built-in table
+#' @param res Output raster resolution in meters, in the service's native CRS.
+#'   Default is 30
+#' @param crop_template Optional SpatRaster. If provided, each output raster
+#'   is reprojected and cropped to match it, as in \code{NLCD_2_CORINE()} and
+#'   \code{LandfireVegHght_AsNumeric()}
+#' @param study_area Optional character string identifying the study area e.g. "Kenai1".
+#'   If provided, used as a prefix in output file names
+#' @param overwrite Logical. Whether to overwrite existing output files. If
+#'   FALSE, existing files are skipped (no re-query). Default is FALSE
+#'
+#' @return Invisibly returns a list with \code{rasters} (a named list of
+#'   SpatRaster objects, one per successfully processed layer) and \code{log}
+#'   (a data frame logging the status of each requested layer)
+#' @seealso \code{\link{NLCD_2_CORINE}}, \code{\link{LandfireVegHght_AsNumeric}}
+#' @export
+download_arcgis_landcover <- function(aoi,
+                                       out_dir,
+                                       service_url = "https://apps.fs.usda.gov/fsgisx02/rest/services/r10/KenaiVegVectorMapService2019/MapServer",
+                                       layer = "DominanceType",
+                                       field = NULL,
+                                       res = 30,
+                                       crop_template = NULL,
+                                       study_area = NULL,
+                                       overwrite = FALSE) {
+
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  filter_geom <- .arcgis_aoi_bbox_sf(aoi)
+  prefix <- if (!is.null(study_area)) paste0(study_area, "_") else ""
+
+  results <- list()
+  log_rows <- vector("list", length(layer))
+
+  for (i in seq_along(layer)) {
+    lyr <- layer[[i]]
+    lyr_label <- as.character(lyr)
+    fld <- if (!is.null(field)) field[[min(i, length(field))]] else NULL
+    out_file <- file.path(out_dir, sprintf("%s%s.tif", prefix, lyr_label))
+
+    if (file.exists(out_file) && !overwrite) {
+      cat(sprintf("Skipping %s (exists): %s\n", lyr_label, out_file))
+      results[[lyr_label]] <- terra::rast(out_file)
+      log_rows[[i]] <- data.frame(layer = lyr_label, n_features = NA_integer_,
+                                   path = out_file, status = "skipped_existing",
+                                   stringsAsFactors = FALSE)
+      next
+    }
+
+    tryCatch({
+      resolved <- .arcgis_resolve_layer(service_url, lyr, fld)
+      fields_needed <- c(resolved$field, if (!is.na(resolved$label_field)) resolved$label_field)
+      sf_result <- .arcgis_query_layer(service_url, resolved$id, fields_needed, filter_geom)
+
+      if (nrow(sf_result) == 0) {
+        warning(sprintf("No features returned for layer '%s' in this AOI; skipping.", lyr_label))
+        log_rows[[i]] <- data.frame(layer = lyr_label, n_features = 0L,
+                                     path = NA_character_, status = "no_features",
+                                     stringsAsFactors = FALSE)
+      } else {
+        r <- .arcgis_rasterize(sf_result, resolved$field, res, filter_geom, crop_template)
+        if (!is.na(resolved$label_field) && resolved$label_field %in% names(sf_result)) {
+          r <- .arcgis_attach_label(r, sf_result, resolved$field, resolved$label_field)
+        }
+        terra::writeRaster(r, out_file, overwrite = TRUE)
+        cat(sprintf("  Saved: %s (%d features)\n", out_file, nrow(sf_result)))
+
+        results[[lyr_label]] <- r
+        log_rows[[i]] <- data.frame(layer = lyr_label, n_features = nrow(sf_result),
+                                     path = out_file, status = "ok",
+                                     stringsAsFactors = FALSE)
+      }
+    }, error = function(e) {
+      warning(sprintf("Layer '%s' failed: %s", lyr_label, conditionMessage(e)))
+      log_rows[[i]] <<- data.frame(layer = lyr_label, n_features = NA_integer_,
+                                    path = NA_character_,
+                                    status = paste0("failed: ", conditionMessage(e)),
+                                    stringsAsFactors = FALSE)
+    })
+  }
+
+  return(invisible(list(rasters = results, log = do.call(rbind, log_rows))))
+}
 
 #' Estimate Diffuse Solar Radiation from AORC Shortwave Radiation
 #'
