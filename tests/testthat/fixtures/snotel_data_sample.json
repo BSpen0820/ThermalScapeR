@@ -1,0 +1,6 @@
+[{"stationTriplet":"312:ID:SNTL","data":[
+  {"stationElement":{"elementCode":"WTEQ","ordinal":1,"durationName":"DAILY","storedUnitCode":"in"},
+   "values":[{"date":"2024-01-01","value":6.2,"qcFlag":"E"},{"date":"2024-01-02","value":6.1,"qcFlag":"V"}]},
+  {"stationElement":{"elementCode":"STO","ordinal":1,"heightDepth":-20,"durationName":"DAILY","storedUnitCode":"degF"},
+   "values":[{"date":"2024-01-01","value":28.0,"qcFlag":"V"},{"date":"2024-01-02","value":27.5,"qcFlag":"V"}]}
+]}]
