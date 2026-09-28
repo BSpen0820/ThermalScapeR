@@ -96,6 +96,12 @@ moisture and wind speed. QC flag columns are kept, but values are not
 masked by flag (a flag of 3 does not always come with a sentinel). A warning
 names any sensor column with no valid data in a period.
 
+\strong{Failures.} For a length-2 \code{Date} vector, a failed period stops
+the call. For a \code{data.frame} of dates, a period that fails (for
+example, the station has no file for that year) is skipped with a warning
+and its list element is \code{NULL}, so the other periods are still
+returned and written; the call stops only if every period fails.
+
 \strong{Files.} If \code{out_dir} is given, one CSV per period is written
 as \code{{STATION_DIR}_{period_label}.csv}; existing files are replaced.
 \code{Date_Time} is written as local-time text (\code{\%Y-\%m-\%d \%H:\%M:\%S}).

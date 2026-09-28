@@ -128,3 +128,17 @@ test_that(".crn_stations stops if the station table cannot be found", {
   )
   expect_error(.crn_stations(), "station")
 })
+
+test_that(".crn_download does not mistake '404' inside a byte count for a missing file", {
+  dest <- withr::local_tempfile()
+  calls <- 0L
+  testthat::local_mocked_bindings(
+    .crn_http_get = function(url, dest) {
+      calls <<- calls + 1L
+      warning("downloaded length 1404123 != reported length 14230080")
+      stop("cannot open URL 'x'")
+    }
+  )
+  expect_error(.crn_download("https://example.org/a", dest), "Failed to download")
+  expect_equal(calls, 2L)
+})

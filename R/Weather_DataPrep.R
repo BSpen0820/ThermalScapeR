@@ -190,7 +190,7 @@
       error = function(e) e)
     if (!inherits(res, "error")) return("ok")
     unlink(dest)
-    if (grepl("404", paste(c(msgs, conditionMessage(res)), collapse = " "), fixed = TRUE))
+    if (grepl("HTTP status was '404", paste(c(msgs, conditionMessage(res)), collapse = " "), fixed = TRUE))
       return("not_found")
   }
   stop(sprintf("Failed to download %s: %s", url, conditionMessage(res)))
@@ -386,6 +386,12 @@
 #' masked by flag (a flag of 3 does not always come with a sentinel). A warning
 #' names any sensor column with no valid data in a period.
 #'
+#' \strong{Failures.} For a length-2 \code{Date} vector, a failed period stops
+#' the call. For a \code{data.frame} of dates, a period that fails (for
+#' example, the station has no file for that year) is skipped with a warning
+#' and its list element is \code{NULL}, so the other periods are still
+#' returned and written; the call stops only if every period fails.
+#'
 #' \strong{Files.} If \code{out_dir} is given, one CSV per period is written
 #' as \code{{STATION_DIR}_{period_label}.csv}; existing files are replaced.
 #' \code{Date_Time} is written as local-time text (\code{\%Y-\%m-\%d \%H:\%M:\%S}).
@@ -484,7 +490,7 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
 
   results <- vector("list", nrow(periods))
   names(results) <- periods$label
-  for (i in seq_len(nrow(periods))) {
+  run_period <- function(i) {
     start <- periods$start[i]
     end <- periods$end[i]
     label <- periods$label[i]
@@ -495,10 +501,28 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
     df <- .crn_finalize(raw, start, end, tz, missing_to_na, label)
     if (!is.null(out_dir))
       .crn_write_period_csv(df, out_dir, station_dir, label)
-    results[[i]] <- df
     rm(raw)
     gc()
+    df
   }
+
+  for (i in seq_len(nrow(periods))) {
+    label <- periods$label[i]
+    df <- if (per$is_df) {
+      tryCatch(run_period(i), error = function(e) {
+        warning(sprintf("Period %s skipped: %s", label,
+                        sub("^Period [^:]+: ", "", conditionMessage(e))),
+                call. = FALSE)
+        NULL
+      })
+    } else {
+      run_period(i)
+    }
+    results[i] <- list(df)
+  }
+
+  if (per$is_df && all(vapply(results, is.null, logical(1))))
+    stop("All periods failed; see the warnings above.")
 
   if (per$is_df) results else results[[1L]]
 }

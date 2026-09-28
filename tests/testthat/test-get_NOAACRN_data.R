@@ -197,3 +197,35 @@ test_that("get_NOAACRN_data downloads real Kenai data across a Dec 31/Jan 1 cros
   expect_identical(format(range(d$Date_Time), "%Y-%m-%d %H:%M"),
                    c("2023-12-31 00:05", "2024-01-02 00:00"))
 })
+
+test_that("in a multi-period call, an empty period is skipped with a warning and the rest are kept", {
+  env <- new.env()
+  mock_crn_network(env, kenai_years = c(2020, 2024),
+                   slabs = list("2024" = c("2023-12-31 15:05", "2024-01-12 12:00")))
+  root <- withr::local_tempdir()
+  d2 <- data.frame(Start_Dates = as.Date(c("2020-06-01", "2024-01-02")),
+                   End_Dates   = as.Date(c("2020-06-02", "2024-01-03")))
+  msgs <- character()
+  res <- withCallingHandlers(
+    suppressMessages(get_NOAACRN_data(station = "AK_Kenai_29_ENE", dates = d2, out_dir = root)),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  expect_named(res, c("20200601_to_20200602", "20240102_to_20240103"))
+  expect_null(res[[1]])
+  expect_equal(nrow(res[[2]]), 576L)
+  expect_true(any(grepl("20200601_to_20200602.*skipped", msgs)))
+  expect_identical(list.files(root), "AK_Kenai_29_ENE_20240102_to_20240103.csv")
+})
+
+test_that("when every period fails the call stops", {
+  env <- new.env()
+  mock_crn_network(env, kenai_years = c(2020, 2021), slabs = list())
+  d2 <- data.frame(Start_Dates = as.Date(c("2020-06-01", "2021-06-01")),
+                   End_Dates   = as.Date(c("2020-06-02", "2021-06-02")))
+  expect_error(
+    suppressWarnings(suppressMessages(
+      get_NOAACRN_data(station = "AK_Kenai_29_ENE", dates = d2))),
+    "All periods failed")
+})
