@@ -117,3 +117,12 @@ test_that(".crn_parse_stations turns non-numeric elevation ('UN') into NA withou
   expect_true(is.na(st$ELEVATION[st$STATION_DIR == "AK_Kenai_29_ENE"]))
   expect_equal(st$LATITUDE[st$STATION_DIR == "AK_Kenai_29_ENE"], 60.72)
 })
+
+test_that(".crn_nearest_station rejects unknown network names and lists the valid ones", {
+  st <- .crn_parse_stations(crn_stations_fixture())
+  listings <- list("2024" = c("AK_Kenai_29_ENE"))
+  expect_error(.crn_nearest_station(st, -150.44, 60.72, 2024L, "uscrn", listings),
+               "Unknown network.*uscrn.*USCRN")
+  expect_error(.crn_nearest_station(st, -150.44, 60.72, 2024L, c("USCRN", "Nope"), listings),
+               "Unknown network.*Nope")
+})

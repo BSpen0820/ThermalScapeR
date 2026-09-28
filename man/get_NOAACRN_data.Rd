@@ -93,7 +93,9 @@ start and end days are kept, so period labels look like
 become \code{NA}: -9999 for air, surface and soil temperature, precipitation,
 relative humidity and wetness; -99999 for solar radiation; -99 for soil
 moisture and wind speed. QC flag columns are kept, but values are not
-masked by flag (a flag of 3 does not always come with a sentinel). A warning
+masked by flag (a flag of 3 does not always come with a sentinel). The text
+column \code{CRX_VN} (datalogger version) also uses \code{-9.000} for
+missing; it is left as-is. A warning
 names any sensor column with no valid data in a period.
 
 \strong{Failures.} For a length-2 \code{Date} vector, a failed period stops

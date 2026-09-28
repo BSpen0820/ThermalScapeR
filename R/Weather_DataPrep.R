@@ -153,8 +153,14 @@
 
 .crn_nearest_station <- function(stations, lon, lat, years, network, listings) {
   cand <- stations
-  if (!is.null(network))
+  if (!is.null(network)) {
+    unknown <- setdiff(network, unique(stations$NETWORK))
+    if (length(unknown) > 0L)
+      stop(sprintf("Unknown network(s): %s. Valid values: %s.",
+                   paste(unknown, collapse = ", "),
+                   paste(sort(unique(stations$NETWORK)), collapse = ", ")))
     cand <- cand[cand$NETWORK %in% network, , drop = FALSE]
+  }
   has_all <- vapply(cand$STATION_DIR, function(d)
     all(vapply(as.character(years), function(y) d %in% listings[[y]], logical(1))),
     logical(1))
@@ -383,7 +389,9 @@
 #' become \code{NA}: -9999 for air, surface and soil temperature, precipitation,
 #' relative humidity and wetness; -99999 for solar radiation; -99 for soil
 #' moisture and wind speed. QC flag columns are kept, but values are not
-#' masked by flag (a flag of 3 does not always come with a sentinel). A warning
+#' masked by flag (a flag of 3 does not always come with a sentinel). The text
+#' column \code{CRX_VN} (datalogger version) also uses \code{-9.000} for
+#' missing; it is left as-is. A warning
 #' names any sensor column with no valid data in a period.
 #'
 #' \strong{Failures.} For a length-2 \code{Date} vector, a failed period stops
