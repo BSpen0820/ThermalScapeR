@@ -221,3 +221,94 @@
     stop("Could not find the USCRN station table at ", url)
   .crn_parse_stations(dest)
 }
+
+.crn_subhourly_cols <- c(
+  "WBANNO", "UTC_DATE", "UTC_TIME", "LST_DATE", "LST_TIME", "CRX_VN",
+  "LONGITUDE", "LATITUDE", "AIR_TEMPERATURE", "PRECIPITATION",
+  "SOLAR_RADIATION", "SR_FLAG", "SURFACE_TEMPERATURE", "ST_TYPE", "ST_FLAG",
+  "RELATIVE_HUMIDITY", "RH_FLAG", "SOIL_MOISTURE_5", "SOIL_TEMPERATURE_5",
+  "WETNESS", "WET_FLAG", "WIND_1_5", "WIND_FLAG"
+)
+
+.crn_col_types <- function() {
+  readr::cols(
+    WBANNO = readr::col_character(), UTC_DATE = readr::col_character(),
+    UTC_TIME = readr::col_character(), LST_DATE = readr::col_character(),
+    LST_TIME = readr::col_character(), CRX_VN = readr::col_character(),
+    LONGITUDE = readr::col_double(), LATITUDE = readr::col_double(),
+    AIR_TEMPERATURE = readr::col_double(), PRECIPITATION = readr::col_double(),
+    SOLAR_RADIATION = readr::col_double(), SR_FLAG = readr::col_integer(),
+    SURFACE_TEMPERATURE = readr::col_double(), ST_TYPE = readr::col_character(),
+    ST_FLAG = readr::col_integer(), RELATIVE_HUMIDITY = readr::col_double(),
+    RH_FLAG = readr::col_integer(), SOIL_MOISTURE_5 = readr::col_double(),
+    SOIL_TEMPERATURE_5 = readr::col_double(), WETNESS = readr::col_double(),
+    WET_FLAG = readr::col_integer(), WIND_1_5 = readr::col_double(),
+    WIND_FLAG = readr::col_integer()
+  )
+}
+
+.crn_sentinels <- c(
+  AIR_TEMPERATURE = -9999, PRECIPITATION = -9999, SURFACE_TEMPERATURE = -9999,
+  SOIL_TEMPERATURE_5 = -9999, RELATIVE_HUMIDITY = -9999, WETNESS = -9999,
+  SOLAR_RADIATION = -99999, SOIL_MOISTURE_5 = -99, WIND_1_5 = -99
+)
+
+.crn_sensor_cols <- c("SOLAR_RADIATION", "SURFACE_TEMPERATURE", "RELATIVE_HUMIDITY",
+                      "SOIL_MOISTURE_5", "SOIL_TEMPERATURE_5", "WIND_1_5")
+
+.crn_read_file <- function(path) {
+  df <- suppressWarnings(
+    readr::read_table(path, col_names = .crn_subhourly_cols,
+                      col_types = .crn_col_types(), progress = FALSE))
+  if (nrow(readr::problems(df)) > 0L)
+    warning(sprintf("Parsing problems in %s; see readr::problems().", basename(path)))
+  df
+}
+
+.crn_lst_tz <- function(df) {
+  fmt <- "%Y%m%d %H%M"
+  utc <- as.POSIXct(paste(df$UTC_DATE, df$UTC_TIME), format = fmt, tz = "UTC")
+  lst <- as.POSIXct(paste(df$LST_DATE, df$LST_TIME), format = fmt, tz = "UTC")
+  off <- round(as.numeric(difftime(lst, utc, units = "hours")))
+  off <- off[!is.na(off)]
+  if (length(off) == 0L)
+    stop("Cannot derive the local standard time offset from the data.")
+  mode_off <- as.integer(names(which.max(table(off))))
+  if (abs(mode_off) > 14L)
+    stop(sprintf("Implausible local standard time offset: %d hours.", mode_off))
+  sprintf("Etc/GMT%+d", -mode_off)
+}
+
+.crn_mask_sentinels <- function(df) {
+  for (col in names(.crn_sentinels)) {
+    x <- df[[col]]
+    x[!is.na(x) & x == .crn_sentinels[[col]]] <- NA
+    df[[col]] <- x
+  }
+  df
+}
+
+.crn_finalize <- function(df, start, end, tz, missing_to_na, label) {
+  df <- as.data.frame(df, stringsAsFactors = FALSE)
+  df$Date_Time <- as.POSIXct(paste(df$LST_DATE, df$LST_TIME),
+                             format = "%Y%m%d %H%M", tz = tz)
+  lo <- as.POSIXct(sprintf("%s 00:00:00", format(start, "%Y-%m-%d")), tz = tz)
+  hi <- as.POSIXct(sprintf("%s 00:00:00", format(end + 1, "%Y-%m-%d")), tz = tz)
+  df <- df[!is.na(df$Date_Time) & df$Date_Time > lo & df$Date_Time <= hi, , drop = FALSE]
+  if (nrow(df) == 0L)
+    stop(sprintf("Period %s: no observations in the requested window.", label))
+  df <- df[order(df$Date_Time), , drop = FALSE]
+  rownames(df) <- NULL
+
+  masked <- .crn_mask_sentinels(df)
+  n_expected <- 288L * (as.integer(end - start) + 1L)
+  if (nrow(df) < n_expected)
+    warning(sprintf("Period %s: expected %d observations but found %d (%d missing).",
+                    label, n_expected, nrow(df), n_expected - nrow(df)))
+  all_na <- .crn_sensor_cols[vapply(.crn_sensor_cols,
+                                    function(cn) all(is.na(masked[[cn]])), logical(1))]
+  if (length(all_na) > 0L)
+    warning(sprintf("Period %s: no valid data for %s.", label,
+                    paste(all_na, collapse = ", ")))
+  if (missing_to_na) masked else df
+}
