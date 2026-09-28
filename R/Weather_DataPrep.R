@@ -107,7 +107,7 @@
     st[[col]] <- as.Date(x, format = "%Y-%m-%d")
   }
   for (col in c("LATITUDE", "LONGITUDE", "ELEVATION"))
-    st[[col]] <- as.numeric(st[[col]])
+    st[[col]] <- suppressWarnings(as.numeric(st[[col]]))
   st$STATION_DIR <- gsub("[[:space:]]+", "_",
                          paste(trimws(st$STATE), trimws(.crn_ascii(st$LOCATION)),
                                trimws(st$VECTOR), sep = "_"))

@@ -107,3 +107,13 @@ test_that(".crn_nearest_station errors clearly when nothing is eligible", {
   expect_error(.crn_nearest_station(st, -150.44, 60.72, 2024L, "USCRN", list("2024" = character())),
                "USCRN.*2024")
 })
+
+test_that(".crn_parse_stations turns non-numeric elevation ('UN') into NA without a warning", {
+  lines <- readLines(crn_stations_fixture(), encoding = "UTF-8")
+  lines <- sub("\t282\t", "\tUN\t", lines, fixed = TRUE)
+  p <- withr::local_tempfile(fileext = ".tsv")
+  writeLines(enc2utf8(lines), p, useBytes = TRUE)
+  expect_no_warning(st <- .crn_parse_stations(p))
+  expect_true(is.na(st$ELEVATION[st$STATION_DIR == "AK_Kenai_29_ENE"]))
+  expect_equal(st$LATITUDE[st$STATION_DIR == "AK_Kenai_29_ENE"], 60.72)
+})
