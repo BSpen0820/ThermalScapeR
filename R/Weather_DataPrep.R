@@ -220,7 +220,7 @@
 }
 
 .crn_mask_sentinels <- function(df) {
-  for (col in names(.crn_sentinels)) {
+  for (col in intersect(names(.crn_sentinels), names(df))) {
     x <- df[[col]]
     x[!is.na(x) & x == .crn_sentinels[[col]]] <- NA
     df[[col]] <- x
@@ -467,4 +467,257 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
     stop("All periods failed; see the warnings above.")
 
   if (per$is_df) results else results[[1L]]
+}
+
+# 5-min CRN stamps are interval ENDS, so stamps in (H-1:00, H:00] are labelled
+# H:00 -- the same convention as ERA5 accumulated fluxes. An hour needs >= 9 of
+# 12 valid values; precip is scaled by 12 / n_valid for partly missing hours.
+.crn_hourly <- function(crn, min_valid = 9L) {
+  need <- c("UTC_DATE", "UTC_TIME", "AIR_TEMPERATURE", "RELATIVE_HUMIDITY",
+            "SOLAR_RADIATION", "SR_FLAG", "WIND_1_5", "PRECIPITATION")
+  miss <- setdiff(need, names(crn))
+  if (length(miss) > 0L)
+    stop(sprintf("crn is missing column(s): %s", paste(miss, collapse = ", ")))
+
+  crn <- .crn_mask_sentinels(as.data.frame(crn, stringsAsFactors = FALSE))
+  t5 <- as.POSIXct(
+    sprintf("%.0f %04d", as.numeric(crn$UTC_DATE), as.integer(crn$UTC_TIME)),
+    format = "%Y%m%d %H%M", tz = "UTC")
+  sr <- crn$SOLAR_RADIATION
+  sr[!is.na(crn$SR_FLAG) & crn$SR_FLAG != 0] <- NA
+
+  keep <- !is.na(t5)
+  key  <- ceiling(as.numeric(t5[keep]) / 3600) * 3600
+
+  hours <- sort(unique(key))
+  agg <- function(x, fun) {
+    vapply(split(x[keep], factor(key, levels = hours)), function(v) {
+      n <- sum(!is.na(v))
+      if (n < min_valid) NA_real_ else fun(v, n)
+    }, numeric(1))
+  }
+  mean_fun <- function(v, n) mean(v, na.rm = TRUE)
+  sum_fun  <- function(v, n) sum(v, na.rm = TRUE) * 12 / n
+
+  data.frame(
+    obs_time  = as.POSIXct(hours, origin = "1970-01-01", tz = "UTC"),
+    temp      = unname(agg(crn$AIR_TEMPERATURE, mean_fun)),
+    relhum    = unname(agg(crn$RELATIVE_HUMIDITY, mean_fun)),
+    swdown    = unname(agg(sr, mean_fun)),
+    windspeed = unname(agg(crn$WIND_1_5, mean_fun)),
+    precip    = unname(agg(crn$PRECIPITATION, sum_fun)),
+    stringsAsFactors = FALSE
+  )
+}
+
+.era5_vars <- c("t2m", "d2m", "sp", "u10", "v10", "tp", "avg_sdlwrf", "fdir", "ssrd")
+
+.era5_raw_point <- function(era5_dir, lon, lat) {
+  files <- list.files(era5_dir, pattern = "\\.nc$", full.names = TRUE)
+  if (length(files) == 0L)
+    stop(sprintf("No ERA5 .nc files found in %s", era5_dir))
+  pts <- matrix(c(lon, lat), ncol = 2)
+
+  per_file <- lapply(files, function(f) {
+    cols <- lapply(.era5_vars, function(v) {
+      r <- tryCatch(terra::rast(f, subds = v), error = function(e)
+        stop(sprintf("ERA5 file %s has no variable '%s' (expected CDS names: %s)",
+                     basename(f), v, paste(.era5_vars, collapse = ", ")), call. = FALSE))
+      e <- terra::ext(r)
+      if (lon < e$xmin || lon > e$xmax || lat < e$ymin || lat > e$ymax)
+        stop(sprintf("Station (lon %.4f, lat %.4f) is outside the ERA5 grid in %s",
+                     lon, lat, basename(f)), call. = FALSE)
+      list(time = terra::time(r),
+           val  = as.numeric(unlist(terra::extract(r, pts)[1, ])))
+    })
+    tm <- cols[[1]]$time
+    for (cc in cols[-1])
+      if (!isTRUE(all.equal(as.numeric(cc$time), as.numeric(tm))))
+        stop(sprintf("Variables in %s have different time axes", basename(f)))
+    out <- data.frame(time = as.POSIXct(as.numeric(tm), origin = "1970-01-01", tz = "UTC"))
+    for (i in seq_along(.era5_vars)) out[[.era5_vars[i]]] <- cols[[i]]$val
+    out
+  })
+
+  raw <- do.call(rbind, per_file)
+  if (all(is.na(raw$t2m)))
+    stop(sprintf("Station (lon %.4f, lat %.4f) is outside the ERA5 grid in %s",
+                 lon, lat, era5_dir))
+  raw <- raw[!duplicated(raw$time), , drop = FALSE]
+  raw <- raw[order(raw$time), , drop = FALSE]
+  rownames(raw) <- NULL
+  raw
+}
+
+.era5_to_climdata <- function(raw) {
+  es <- function(tc) 0.6108 * exp(17.27 * tc / (tc + 237.3))
+  tc <- raw$t2m - 273.15
+  sw <- raw$ssrd / 3600
+  data.frame(
+    obs_time  = raw$time,
+    temp      = tc,
+    relhum    = pmin(100, 100 * es(raw$d2m - 273.15) / es(tc)),
+    pres      = raw$sp / 1000,
+    swdown    = sw,
+    difrad    = pmax(sw - raw$fdir / 3600, 0),
+    lwdown    = raw$avg_sdlwrf,
+    windspeed = sqrt(raw$u10^2 + raw$v10^2) * 0.7477849,
+    winddir   = (180 + atan2(raw$u10, raw$v10) * 180 / pi) %% 360,
+    precip    = raw$tp * 1000,
+    stringsAsFactors = FALSE
+  )
+}
+
+.bias_coef <- function(crn, era5, type = c("add", "ratio"), min_era5 = 0) {
+  type <- match.arg(type)
+  neutral <- if (type == "add") 0 else 1
+  ok <- !is.na(crn) & !is.na(era5)
+  if (type == "ratio") ok <- ok & era5 > min_era5
+  n <- sum(ok)
+  if (n < 24L) {
+    warning(sprintf("Only %d overlapping CRN/ERA5 hours for bias fitting (< 24); using neutral correction.", n))
+    return(list(value = neutral, n = n))
+  }
+  val <- if (type == "add") mean(crn[ok] - era5[ok]) else {
+    den <- sum(era5[ok]); if (den == 0) 1 else sum(crn[ok]) / den
+  }
+  list(value = val, n = n)
+}
+
+.merge_fill <- function(crn_h, era5_c, grid, bias_correct = TRUE, wind_factor = 1) {
+  m <- merge(data.frame(obs_time = grid), crn_h, by = "obs_time", all.x = TRUE)
+  m <- merge(m, era5_c, by = "obs_time", all.x = TRUE, suffixes = c("", ".e"))
+  m <- m[order(m$obs_time), , drop = FALSE]
+  m$windspeed <- m$windspeed * wind_factor
+
+  spec <- list(
+    temp      = list(type = "add"),
+    relhum    = list(type = "add"),
+    swdown    = list(type = "ratio", min = 10),
+    windspeed = list(type = "ratio", min = 0.1),
+    precip    = list(type = NA)
+  )
+  filled <- character(nrow(m))
+  coefs  <- list()
+  for (v in names(spec)) {
+    x <- m[[v]]; e <- m[[paste0(v, ".e")]]; s <- spec[[v]]
+    if (!is.na(s$type) && bias_correct) {
+      cf <- .bias_coef(x, e, s$type, if (is.null(s$min)) 0 else s$min)
+      e <- if (s$type == "add") e + cf$value else e * cf$value
+      coefs[[v]] <- data.frame(variable = v, type = s$type, value = cf$value, n = cf$n)
+    }
+    fill <- is.na(x) & !is.na(e)
+    x[fill] <- e[fill]
+    filled[fill] <- ifelse(nzchar(filled[fill]), paste(filled[fill], v, sep = ","), v)
+    m[[v]] <- x
+  }
+  m$relhum    <- pmin(pmax(m$relhum, 0), 100)
+  m$swdown    <- pmax(m$swdown, 0)
+  m$windspeed <- pmax(m$windspeed, 0)
+  m$precip    <- pmax(m$precip, 0)
+  m$difrad    <- pmin(pmax(m$difrad, 0), m$swdown)
+  m$filled    <- filled
+
+  cols <- c("obs_time", "temp", "relhum", "pres", "swdown", "difrad", "lwdown",
+            "windspeed", "winddir", "precip", "filled")
+  out <- m[, cols]
+  rownames(out) <- NULL
+  list(data = out, coefs = if (length(coefs)) do.call(rbind, coefs) else NULL)
+}
+
+#' Build a microclimf Climate Data Frame from CRN and ERA5
+#'
+#' Merges hourly-aggregated USCRN station data with ERA5 reanalysis from the
+#' station's grid cell into the hourly \code{climdata}-format data frame used by
+#' the \code{microclimfPara} data-frame workflow (e.g. \code{runmicro_big()}
+#' with a \code{micropoint} data frame). Intended for areas outside AORC
+#' coverage (e.g. Alaska) or small areas where one station represents the domain.
+#'
+#' @details CRN is the primary source for \code{temp}, \code{relhum},
+#'   \code{swdown}, \code{windspeed} and \code{precip}. Five-minute values are
+#'   aggregated to hourly UTC (stamps in (H-1:00, H:00] are labelled H:00, the
+#'   ERA5 flux convention); an hour needs at least 9 of 12 valid values, and
+#'   precipitation is scaled for partly missing hours. Solar radiation with
+#'   \code{SR_FLAG != 0} is treated as missing. ERA5 supplies \code{pres},
+#'   \code{difrad} (total minus direct-horizontal shortwave), \code{lwdown} and
+#'   \code{winddir}, and fills CRN gaps. When \code{bias_correct = TRUE}, filled
+#'   values are corrected using hours where both sources exist: an additive offset
+#'   for temperature and humidity, a multiplicative ratio for daytime shortwave
+#'   and wind speed, and none for precipitation. CRN wind is scaled from
+#'   \code{wind_height} to the 2 m climdata reference with a log profile
+#'   (z0 = 0.01 m). ERA5 files are read directly with current CDS variable names
+#'   (\code{avg_sdlwrf}, \code{ssrd}, ...), so no patching of
+#'   \code{microclimdata} is needed. The function stops if any value remains
+#'   \code{NA}, because \code{microclimf} cannot run with missing weather.
+#'
+#' @param crn A data.frame from \code{\link{get_NOAACRN_data}} for a single
+#'   station and period
+#' @param era5_dir Directory containing the ERA5 \code{.nc} files downloaded by
+#'   \code{microclimdata::era5_download()}. Non-\code{.nc} entries are ignored
+#' @param tme Optional hourly POSIXct vector; output is restricted to its
+#'   range. Default NULL uses the full hourly CRN period
+#' @param bias_correct Logical. Bias-correct ERA5 values used to fill CRN gaps.
+#'   Default TRUE
+#' @param wind_height Numeric. CRN anemometer height in metres. Default 1.5
+#' @param flag_col Logical. Add a \code{filled} column naming the variables
+#'   filled from ERA5 in each hour. Default TRUE
+#'
+#' @return A data.frame with columns \code{obs_time} (hourly POSIXct, UTC),
+#'   \code{temp}, \code{relhum}, \code{pres}, \code{swdown}, \code{difrad},
+#'   \code{lwdown}, \code{windspeed}, \code{winddir}, \code{precip}, plus
+#'   \code{filled} when \code{flag_col = TRUE}
+#' @seealso \code{\link{get_NOAACRN_data}}, \code{microclimdata::era5_download}
+#' @export
+build_climdata_crn_era5 <- function(crn,
+                                    era5_dir,
+                                    tme = NULL,
+                                    bias_correct = TRUE,
+                                    wind_height = 1.5,
+                                    flag_col = TRUE) {
+
+  if (length(unique(crn$WBANNO)) > 1L)
+    stop("crn contains more than one station (WBANNO); supply a single station")
+  lon <- stats::median(crn$LONGITUDE, na.rm = TRUE)
+  lat <- stats::median(crn$LATITUDE, na.rm = TRUE)
+
+  crn_h <- .crn_hourly(crn)
+  era5_c <- .era5_to_climdata(.era5_raw_point(era5_dir, lon, lat))
+
+  if (is.null(tme)) {
+    grid <- seq(min(crn_h$obs_time), max(crn_h$obs_time), by = "hour")
+  } else {
+    tme <- as.POSIXct(tme)
+    attr(tme, "tzone") <- "UTC"
+    grid <- seq(min(tme), max(tme), by = "hour")
+  }
+
+  cov <- mean(!is.na(crn_h$temp[match(grid, crn_h$obs_time)]))
+  if (cov < 0.8)
+    warning(sprintf("CRN coverage is only %.0f%% of the requested hours; ERA5 fills the rest.",
+                    100 * cov))
+
+  wind_factor <- if (wind_height == 2) 1 else log(2 / 0.01) / log(wind_height / 0.01)
+  res <- .merge_fill(crn_h, era5_c, grid, bias_correct, wind_factor)
+  out <- res$data
+
+  value_cols <- setdiff(names(out), c("obs_time", "filled"))
+  na_n <- vapply(out[value_cols], function(x) sum(is.na(x)), integer(1))
+  if (any(na_n > 0L))
+    stop(sprintf("NA values remain after merging CRN and ERA5 (does ERA5 cover %s to %s? Restrict the period with `tme` if not): %s",
+                 format(min(grid), "%Y-%m-%d %H:%M"), format(max(grid), "%Y-%m-%d %H:%M"),
+                 paste(sprintf("%s = %d", names(na_n)[na_n > 0L], na_n[na_n > 0L]),
+                       collapse = ", ")))
+
+  cat(sprintf("Built climdata: %d hours, %s to %s UTC (station lon %.4f, lat %.4f)\n",
+              nrow(out), format(min(grid), "%Y-%m-%d %H:%M"),
+              format(max(grid), "%Y-%m-%d %H:%M"), lon, lat))
+  for (v in c("temp", "relhum", "swdown", "windspeed", "precip"))
+    cat(sprintf("  %-9s filled from ERA5: %d hours\n", v, sum(grepl(v, out$filled))))
+  if (!is.null(res$coefs))
+    for (i in seq_len(nrow(res$coefs)))
+      cat(sprintf("  bias %-9s %-5s %.3f (n = %d)\n", res$coefs$variable[i],
+                  res$coefs$type[i], res$coefs$value[i], res$coefs$n[i]))
+
+  if (!flag_col) out$filled <- NULL
+  out
 }

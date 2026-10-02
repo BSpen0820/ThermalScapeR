@@ -3,6 +3,7 @@
 S3method(plot,metchamber_result)
 export(LandfireVegHght_AsNumeric)
 export(NLCD_2_CORINE)
+export(build_climdata_crn_era5)
 export(cells_for_array_task)
 export(check_na_vs_water)
 export(chunk_days)
