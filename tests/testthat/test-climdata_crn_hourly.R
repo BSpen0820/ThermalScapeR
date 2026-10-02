@@ -50,3 +50,10 @@ test_that("missing 5-min rows do not shift hour bins", {
 test_that("missing columns error clearly", {
   expect_error(.crn_hourly(make_crn()[, c("UTC_DATE", "UTC_TIME")]), "missing column")
 })
+
+test_that("RH_FLAG and WIND_FLAG non-zero values are treated as missing", {
+  h <- .crn_hourly(make_crn(RH_FLAG = c(rep(3L, 12), rep(0L, 12)),
+                            WIND_FLAG = c(rep(0L, 12), rep(3L, 12))))
+  expect_true(is.na(h$relhum[1])); expect_equal(h$relhum[2], 80)
+  expect_equal(h$windspeed[1], 2); expect_true(is.na(h$windspeed[2]))
+})

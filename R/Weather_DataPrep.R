@@ -485,6 +485,10 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
     format = "%Y%m%d %H%M", tz = "UTC")
   sr <- crn$SOLAR_RADIATION
   sr[!is.na(crn$SR_FLAG) & crn$SR_FLAG != 0] <- NA
+  rh <- crn$RELATIVE_HUMIDITY
+  if ("RH_FLAG" %in% names(crn)) rh[!is.na(crn$RH_FLAG) & crn$RH_FLAG != 0] <- NA
+  wind <- crn$WIND_1_5
+  if ("WIND_FLAG" %in% names(crn)) wind[!is.na(crn$WIND_FLAG) & crn$WIND_FLAG != 0] <- NA
 
   keep <- !is.na(t5)
   key  <- ceiling(as.numeric(t5[keep]) / 3600) * 3600
@@ -502,9 +506,9 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
   data.frame(
     obs_time  = as.POSIXct(hours, origin = "1970-01-01", tz = "UTC"),
     temp      = unname(agg(crn$AIR_TEMPERATURE, mean_fun)),
-    relhum    = unname(agg(crn$RELATIVE_HUMIDITY, mean_fun)),
+    relhum    = unname(agg(rh, mean_fun)),
     swdown    = unname(agg(sr, mean_fun)),
-    windspeed = unname(agg(crn$WIND_1_5, mean_fun)),
+    windspeed = unname(agg(wind, mean_fun)),
     precip    = unname(agg(crn$PRECIPITATION, sum_fun)),
     stringsAsFactors = FALSE
   )
@@ -615,7 +619,9 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
   m$swdown    <- pmax(m$swdown, 0)
   m$windspeed <- pmax(m$windspeed, 0)
   m$precip    <- pmax(m$precip, 0)
-  m$difrad    <- pmin(pmax(m$difrad, 0), m$swdown)
+  frac        <- ifelse(!is.na(m$swdown.e) & m$swdown.e > 1,
+                        pmin(pmax(m$difrad / m$swdown.e, 0), 1), 1)
+  m$difrad    <- m$swdown * frac
   m$filled    <- filled
 
   cols <- c("obs_time", "temp", "relhum", "pres", "swdown", "difrad", "lwdown",
@@ -638,9 +644,10 @@ get_NOAACRN_data <- function(station = NULL, coords = NULL, dates,
 #'   aggregated to hourly UTC (stamps in (H-1:00, H:00] are labelled H:00, the
 #'   ERA5 flux convention); an hour needs at least 9 of 12 valid values, and
 #'   precipitation is scaled for partly missing hours. Solar radiation with
-#'   \code{SR_FLAG != 0} is treated as missing. ERA5 supplies \code{pres},
-#'   \code{difrad} (total minus direct-horizontal shortwave), \code{lwdown} and
-#'   \code{winddir}, and fills CRN gaps. When \code{bias_correct = TRUE}, filled
+#'   \code{SR_FLAG}, \code{RH_FLAG} or \code{WIND_FLAG != 0} is treated as
+#'   missing. ERA5 supplies \code{pres}, \code{lwdown} and \code{winddir}, and
+#'   fills CRN gaps. \code{difrad} applies ERA5's diffuse fraction (total minus
+#'   direct-horizontal shortwave, over total) to the output \code{swdown}. When \code{bias_correct = TRUE}, filled
 #'   values are corrected using hours where both sources exist: an additive offset
 #'   for temperature and humidity, a multiplicative ratio for daytime shortwave
 #'   and wind speed, and none for precipitation. CRN wind is scaled from
@@ -684,7 +691,15 @@ build_climdata_crn_era5 <- function(crn,
   era5_c <- .era5_to_climdata(.era5_raw_point(era5_dir, lon, lat))
 
   if (is.null(tme)) {
-    grid <- seq(min(crn_h$obs_time), max(crn_h$obs_time), by = "hour")
+    lo <- max(min(crn_h$obs_time), min(era5_c$obs_time))
+    hi <- min(max(crn_h$obs_time), max(era5_c$obs_time))
+    if (hi < lo)
+      stop("CRN and ERA5 data have no overlapping period; check the ERA5 download dates")
+    n_drop <- sum(crn_h$obs_time < lo | crn_h$obs_time > hi)
+    if (n_drop > 0L)
+      message(sprintf("%d CRN hour(s) outside ERA5 coverage dropped (period set to %s - %s UTC).",
+                      n_drop, format(lo, "%Y-%m-%d %H:%M"), format(hi, "%Y-%m-%d %H:%M")))
+    grid <- seq(lo, hi, by = "hour")
   } else {
     tme <- as.POSIXct(tme)
     attr(tme, "tzone") <- "UTC"

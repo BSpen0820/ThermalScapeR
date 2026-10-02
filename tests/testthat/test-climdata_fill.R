@@ -67,3 +67,18 @@ test_that("grid hours missing from CRN are filled; hours missing from ERA5 stay 
   expect_equal(nrow(r$data), length(grid))
   expect_true(is.na(r$data$pres[1]) && is.na(r$data$temp[1]))
 })
+
+test_that("difrad carries ERA5's diffuse fraction applied to the output swdown", {
+  p <- mk_pair()                       # CRN swdown 100; ERA5 swdown 50, difrad 20 -> fraction 0.4
+  r <- .merge_fill(p$crn, p$era, p$grid)
+  expect_equal(unique(r$data$difrad), 40)
+})
+
+test_that("difrad fraction is 1 (all diffuse) when ERA5 swdown is ~0, and capped at 1", {
+  p <- mk_pair(); p$era$swdown <- 0; p$era$difrad <- 0
+  r <- .merge_fill(p$crn, p$era, p$grid)
+  expect_equal(unique(r$data$difrad), 100)
+  p <- mk_pair(); p$era$difrad <- 80   # > swdown_e 50 -> fraction capped at 1
+  r <- .merge_fill(p$crn, p$era, p$grid)
+  expect_equal(unique(r$data$difrad), 100)
+})

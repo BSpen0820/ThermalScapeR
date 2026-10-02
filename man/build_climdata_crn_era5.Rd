@@ -50,9 +50,10 @@ CRN is the primary source for \code{temp}, \code{relhum},
 aggregated to hourly UTC (stamps in (H-1:00, H:00] are labelled H:00, the
 ERA5 flux convention); an hour needs at least 9 of 12 valid values, and
 precipitation is scaled for partly missing hours. Solar radiation with
-\code{SR_FLAG != 0} is treated as missing. ERA5 supplies \code{pres},
-\code{difrad} (total minus direct-horizontal shortwave), \code{lwdown} and
-\code{winddir}, and fills CRN gaps. When \code{bias_correct = TRUE}, filled
+\code{SR_FLAG}, \code{RH_FLAG} or \code{WIND_FLAG != 0} is treated as
+missing. ERA5 supplies \code{pres}, \code{lwdown} and \code{winddir}, and
+fills CRN gaps. \code{difrad} applies ERA5's diffuse fraction (total minus
+direct-horizontal shortwave, over total) to the output \code{swdown}. When \code{bias_correct = TRUE}, filled
 values are corrected using hours where both sources exist: an additive offset
 for temperature and humidity, a multiplicative ratio for daytime shortwave
 and wind speed, and none for precipitation. CRN wind is scaled from

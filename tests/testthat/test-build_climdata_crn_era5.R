@@ -40,7 +40,8 @@ test_that("tme restricts the output period", {
 
 test_that("unfilled NA after merging is an error naming the columns", {
   d <- withr::local_tempdir(); make_era5_fixture(d, n_hours = 10)   # ERA5 ends early
-  expect_error(suppressMessages(build_climdata_crn_era5(make_station_crn(30), d)),
+  tme <- seq(as.POSIXct("2020-05-01 01:00", tz = "UTC"), by = "hour", length.out = 30)
+  expect_error(suppressMessages(build_climdata_crn_era5(make_station_crn(30), d, tme = tme)),
                "NA.*pres")
 })
 
@@ -55,4 +56,17 @@ test_that("low CRN coverage warns", {
   d <- withr::local_tempdir(); make_era5_fixture(d, n_hours = 48)
   crn <- make_station_crn(30); crn$AIR_TEMPERATURE[1:200] <- NA
   expect_warning(suppressMessages(build_climdata_crn_era5(crn, d)), "coverage")
+})
+
+test_that("default period is trimmed to the CRN/ERA5 overlap instead of failing", {
+  d <- withr::local_tempdir(); make_era5_fixture(d, n_hours = 10)   # ERA5 01-Hr 00:00..09:00
+  out <- suppressWarnings(suppressMessages(build_climdata_crn_era5(make_station_crn(30), d)))
+  expect_equal(nrow(out), 9)                                        # CRN hours start 01:00
+  expect_equal(max(out$obs_time), as.POSIXct("2020-05-01 09:00", tz = "UTC"))
+  expect_message(suppressWarnings(build_climdata_crn_era5(make_station_crn(30), d)), "dropped")
+})
+
+test_that("no overlap between CRN and ERA5 is an error", {
+  d <- withr::local_tempdir(); make_era5_fixture(d, n_hours = 10, start = "2021-01-01 00:00")
+  expect_error(build_climdata_crn_era5(make_station_crn(30), d), "overlap")
 })
