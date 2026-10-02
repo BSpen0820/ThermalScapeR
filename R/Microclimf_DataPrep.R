@@ -2457,9 +2457,22 @@ download_aorc <- function(aoi,
   sf::st_as_sfc(sf::st_bbox(.aoi_to_wgs84_bbox(aoi), crs = sf::st_crs(4326)))
 }
 
-.arcgis_query_layer <- function(service_url, layer_id, fields, filter_geom) {
+.arcgis_query_layer <- function(service_url, layer_id, fields, filter_geom,
+                                page_size = NULL, retries = 2) {
   furl <- arcgislayers::arc_open(sprintf("%s/%d", service_url, layer_id))
-  arcgislayers::arc_select(furl, fields = fields, filter_geom = filter_geom)
+  for (attempt in seq_len(retries + 1L)) {
+    out <- tryCatch(
+      arcgislayers::arc_select(furl, fields = fields, filter_geom = filter_geom,
+                               page_size = page_size),
+      error = function(e) e,
+      warning = function(w) w
+    )
+    if (!inherits(out, "condition")) return(out)
+    if (attempt > retries) stop(conditionMessage(out), call. = FALSE)
+    cat(sprintf("  Query attempt %d failed (%s); retrying...\n", attempt,
+                strtrim(gsub("\\s+", " ", conditionMessage(out)), 120)))
+    Sys.sleep(2 * attempt)
+  }
 }
 
 # The template grid is built from query_extent (the AOI bbox), not from the
@@ -2538,6 +2551,10 @@ download_aorc <- function(aoi,
 #'   If provided, used as a prefix in output file names
 #' @param overwrite Logical. Whether to overwrite existing output files. If
 #'   FALSE, existing files are skipped (no re-query). Default is FALSE
+#' @param page_size Integer or NULL. Features requested per HTTP page; lower it
+#'   (e.g. 250) if the service times out. NULL uses the service default
+#' @param retries Integer. Additional attempts for a layer query that fails
+#'   (e.g. a timed-out page). Default is 2
 #'
 #' @return Invisibly returns a list with \code{rasters} (a named list of
 #'   SpatRaster objects, one per successfully processed layer) and \code{log}
@@ -2552,7 +2569,9 @@ download_arcgis_landcover <- function(aoi,
                                        res = 30,
                                        crop_template = NULL,
                                        study_area = NULL,
-                                       overwrite = FALSE) {
+                                       overwrite = FALSE,
+                                       page_size = NULL,
+                                       retries = 2) {
 
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   filter_geom <- .arcgis_aoi_bbox_sf(aoi)
@@ -2579,7 +2598,8 @@ download_arcgis_landcover <- function(aoi,
     tryCatch({
       resolved <- .arcgis_resolve_layer(service_url, lyr, fld)
       fields_needed <- c(resolved$field, if (!is.na(resolved$label_field)) resolved$label_field)
-      sf_result <- .arcgis_query_layer(service_url, resolved$id, fields_needed, filter_geom)
+      sf_result <- .arcgis_query_layer(service_url, resolved$id, fields_needed, filter_geom,
+                                     page_size, retries)
 
       if (nrow(sf_result) == 0) {
         warning(sprintf("No features returned for layer '%s' in this AOI; skipping.", lyr_label))

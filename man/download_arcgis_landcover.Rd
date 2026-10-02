@@ -14,7 +14,9 @@ download_arcgis_landcover(
   res = 30,
   crop_template = NULL,
   study_area = NULL,
-  overwrite = FALSE
+  overwrite = FALSE,
+  page_size = NULL,
+  retries = 2
 )
 }
 \arguments{
@@ -49,6 +51,12 @@ If provided, used as a prefix in output file names}
 
 \item{overwrite}{Logical. Whether to overwrite existing output files. If
 FALSE, existing files are skipped (no re-query). Default is FALSE}
+
+\item{page_size}{Integer or NULL. Features requested per HTTP page; lower it
+(e.g. 250) if the service times out. NULL uses the service default}
+
+\item{retries}{Integer. Additional attempts for a layer query that fails
+(e.g. a timed-out page). Default is 2}
 }
 \value{
 Invisibly returns a list with \code{rasters} (a named list of
