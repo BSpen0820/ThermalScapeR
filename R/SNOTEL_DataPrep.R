@@ -109,12 +109,7 @@
             qcFlag = character(), qaFlag = character(), stringsAsFactors = FALSE)
 }
 
-.snotel_fetch <- function(triplet, elements, duration, start, end) {
-  if (identical(elements, "*")) {
-    elements <- .snotel_station_elements(triplet, duration)
-    if (length(elements) == 0L) return(.snotel_empty_fetch())
-  }
-  bounds <- .snotel_duration_bounds(start, end, duration)
+.snotel_fetch_elements <- function(triplet, elements, duration, bounds) {
   url <- sprintf(
     "%s/data?stationTriplets=%s&elements=%s&duration=%s&beginDate=%s&endDate=%s&returnFlags=true",
     .snotel_base_url, triplet, .snotel_elements_param(elements), duration,
@@ -142,6 +137,32 @@
     )
   })
   do.call(rbind, rows)
+}
+
+# The AWDB service returns HTTP 500 for the whole request if any one requested
+# element is unservable (confirmed live: DIAG at 966:AK:SNTL). On failure the
+# elements are retried one at a time and the unservable ones skipped.
+.snotel_fetch <- function(triplet, elements, duration, start, end) {
+  if (identical(elements, "*")) {
+    elements <- .snotel_station_elements(triplet, duration)
+    if (length(elements) == 0L) return(.snotel_empty_fetch())
+  }
+  bounds <- .snotel_duration_bounds(start, end, duration)
+  res <- tryCatch(.snotel_fetch_elements(triplet, elements, duration, bounds),
+                  error = function(e) e)
+  if (!inherits(res, "error")) return(res)
+  if (length(elements) == 1L) stop(conditionMessage(res), call. = FALSE)
+  parts <- list()
+  skipped <- character()
+  for (el in elements) {
+    r <- tryCatch(.snotel_fetch_elements(triplet, el, duration, bounds),
+                  error = function(e) NULL)
+    if (is.null(r)) skipped <- c(skipped, el) else parts[[el]] <- r
+  }
+  if (length(parts) == 0L) stop(conditionMessage(res), call. = FALSE)
+  warning(sprintf("Station %s: skipped element(s) the SNOTEL service could not return: %s.",
+                  triplet, paste(skipped, collapse = ", ")), call. = FALSE)
+  do.call(rbind, unname(parts))
 }
 
 .snotel_depth_label <- function(element_code, height_depth, ordinal = 1L) {
