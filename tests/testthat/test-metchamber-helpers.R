@@ -24,18 +24,29 @@ test_that(".mc_scenario_overrides sets standing scenarios active all day with re
   expect_equal(ov$allometry, list())
 })
 
-test_that(".mc_scenario_overrides sets curled scenarios inactive all day with forced posture 3", {
+test_that(".mc_scenario_overrides sets curled scenarios inactive all day, keeping the animal's own postures", {
   endo_inputs <- get_endotherm_defaults()
   ov <- .mc_scenario_overrides("curled_variable", endo_inputs)
   expect_equal(ov$diet$diurnal_enabled, rep("N", 12))
   expect_equal(ov$diet$nocturnal_enabled, rep("N", 12))
   expect_equal(ov$diet$crepuscular_enabled, rep("N", 12))
+  expect_equal(ov$allometry, list())
+  expect_equal(ov$physiology, list())
+})
+
+test_that(".mc_scenario_overrides forces a single curled posture when curled_posture is given", {
+  endo_inputs <- get_endotherm_defaults()
+  ov <- .mc_scenario_overrides("curled_constant", endo_inputs, curled_posture = 3)
+  expect_equal(ov$allometry$posture_1_enabled, "N")
+  expect_equal(ov$allometry$posture_2_enabled, "N")
   expect_equal(ov$allometry$posture_3_enabled, "Y")
   expect_equal(ov$allometry$posture_4_enabled, "N")
   expect_equal(ov$allometry$sleep_start_posture, 3)
   expect_equal(ov$allometry$shade_start_posture, 3)
   expect_equal(ov$allometry$inactive_end_posture, 3)
-  expect_equal(ov$physiology, list())
+
+  ov_standing <- .mc_scenario_overrides("standing_constant", endo_inputs, curled_posture = 3)
+  expect_equal(ov_standing$allometry, list())
 })
 
 test_that(".mc_scenario_overrides narrows core temp to core_temp_target +/- 0.1 for constant scenarios", {

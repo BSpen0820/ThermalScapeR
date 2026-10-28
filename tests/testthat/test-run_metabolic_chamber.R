@@ -262,3 +262,52 @@ test_that("run_metabolic_chamber runs all 4 real scenarios end-to-end", {
     expect_true("TAIR" %in% names(hp))
   }
 })
+
+test_that("run_metabolic_chamber disables panting and passes curled_posture to the curled scenarios", {
+  fake_exe <- tempfile(fileext = ".exe")
+  writeLines("not a real exe", fake_exe)
+  on.exit(unlink(fake_exe))
+
+  captured <- list()
+  orig_write <- write_endotherm_inputs
+  testthat::local_mocked_bindings(
+    write_endotherm_inputs = function(output_dir, ...) {
+      args <- list(...)
+      captured[[basename(output_dir)]] <<- list(physiology = args$physiology, allometry = args$allometry)
+      orig_write(output_dir, ...)
+    },
+    run_endotherm_model = function(workspace_dir, exe_path, sysname, ...) {
+      .write_fake_hourplot(file.path(workspace_dir, "HOURPLOT.csv"))
+      .write_fake_output(file.path(workspace_dir, "OUTPUT"))
+      list(success = TRUE, message = "Calculations completed.")
+    }
+  )
+
+  ei <- get_endotherm_defaults()
+  ei$physiology$o2_extraction_max_pct <- 25
+  ei$physiology$o2_extraction_min_pct <- 17
+  run_metabolic_chamber(ei, exe_path = fake_exe, scenarios = c("standing_variable", "curled_variable"),
+                        curled_posture = 4)
+  standing <- captured[[grep("^mc_standing_variable_", names(captured))]]
+  curled <- captured[[grep("^mc_curled_variable_", names(captured))]]
+  expect_equal(standing$physiology$o2_extraction_min_pct, 25)
+  expect_equal(curled$physiology$o2_extraction_min_pct, 25)
+  expect_equal(curled$allometry$posture_4_enabled, "Y")
+  expect_equal(curled$allometry$inactive_end_posture, 4)
+  expect_equal(standing$allometry$posture_4_enabled, ei$allometry$posture_4_enabled)
+
+  captured <- list()
+  run_metabolic_chamber(ei, exe_path = fake_exe, scenarios = "standing_variable",
+                        mc_overrides = list(physiology = list(o2_extraction_min_pct = 10)))
+  expect_equal(captured[[1]]$physiology$o2_extraction_min_pct, 10)
+})
+
+test_that("run_metabolic_chamber rejects an invalid curled_posture", {
+  fake_exe <- tempfile(fileext = ".exe")
+  writeLines("not a real exe", fake_exe)
+  on.exit(unlink(fake_exe))
+  expect_error(run_metabolic_chamber(get_endotherm_defaults(), exe_path = fake_exe, curled_posture = 5),
+               "curled_posture")
+  expect_error(run_metabolic_chamber(get_endotherm_defaults(), exe_path = fake_exe, curled_posture = c(2, 3)),
+               "curled_posture")
+})

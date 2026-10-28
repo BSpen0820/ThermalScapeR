@@ -14,7 +14,8 @@ run_metabolic_chamber(
   headless = FALSE,
   wineprefix = NULL,
   temp_range = c(-40, 45),
-  temp_step = 1
+  temp_step = 1,
+  curled_posture = NULL
 )
 }
 \arguments{
@@ -70,6 +71,17 @@ Default \code{1}. The ramp is spread over the chamber's 12 julian days
 at 22 hours each, so at most 264 steps fit
 (\code{diff(temp_range) / temp_step + 1 <= 264}); a coarser step allows a
 wider range.}
+
+\item{curled_posture}{\code{NULL} (default) or a single integer 1-4. With
+\code{NULL} the curled (inactive) scenarios use the animal's own inactive
+posture settings from \code{endo_inputs$allometry}
+(\code{posture_1_enabled}-\code{posture_4_enabled},
+\code{sleep_start_posture}, \code{inactive_end_posture}), as the Endotherm
+developers' metabolic chamber instructions describe. An integer forces
+that one posture (only that posture enabled, and used as the start and
+end posture): 1 = all body parts modeled, all touching the ground; 2 =
+legs lumped into the torso, head and neck held up; 3 = legs lumped into the
+torso, head and neck on the ground; 4 = the whole animal as one shape.}
 }
 \value{
 An object of class \code{"metchamber_result"}: a list with
@@ -112,6 +124,17 @@ night_shade_enabled/dive_option_enabled = "N"},
 concurrent_core_temp_increase_enabled/
 concurrent_core_temp_decrease_enabled = "N"}; \code{flying_digging}
 \code{flight_enabled/fossorial_enabled/digging_enabled/arboreal_enabled = "N"}.
+Panting is also disabled by setting \code{physiology$o2_extraction_min_pct}
+to the animal's \code{o2_extraction_max_pct} (unless \code{mc_overrides}
+supplies \code{o2_extraction_min_pct} itself). Following the Endotherm
+developers' metabolic chamber instructions, sweating and panting are not
+indicative of the thermoneutral zone: with both off, the temperature at
+which predicted metabolic rate falls below the target line in a standing
+scenario is where the animal has exhausted flesh conductivity and core
+temperature and would begin to pant, i.e. the upper critical temperature.
+The lower critical temperature is read from the curled scenarios, where
+predicted metabolic rate rises above the target line.
+
 If a scenario's exe run fails, a
 \code{warning()} is issued and that scenario is omitted from
 \code{$hourplot} (recorded as a failure in \code{$log}); the function only

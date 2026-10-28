@@ -446,12 +446,14 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
   )
 }
 
-.mc_scenario_overrides <- function(scenario_id, endo_inputs) {
+.mc_scenario_overrides <- function(scenario_id, endo_inputs, curled_posture = NULL) {
   active <- if (grepl("^standing", scenario_id)) "Y" else "N"
 
-  posture <- if (grepl("^curled", scenario_id)) {
-    list(posture_3_enabled = "Y", posture_4_enabled = "N", sleep_start_posture = 3,
-         shade_start_posture = 3, inactive_end_posture = 3)
+  posture <- if (grepl("^curled", scenario_id) && !is.null(curled_posture)) {
+    enabled <- stats::setNames(as.list(ifelse(1:4 == curled_posture, "Y", "N")),
+                               sprintf("posture_%d_enabled", 1:4))
+    c(enabled, list(sleep_start_posture = curled_posture, shade_start_posture = curled_posture,
+                    inactive_end_posture = curled_posture))
   } else {
     list()
   }
@@ -564,6 +566,16 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 #'   at 22 hours each, so at most 264 steps fit
 #'   (\code{diff(temp_range) / temp_step + 1 <= 264}); a coarser step allows a
 #'   wider range.
+#' @param curled_posture \code{NULL} (default) or a single integer 1-4. With
+#'   \code{NULL} the curled (inactive) scenarios use the animal's own inactive
+#'   posture settings from \code{endo_inputs$allometry}
+#'   (\code{posture_1_enabled}-\code{posture_4_enabled},
+#'   \code{sleep_start_posture}, \code{inactive_end_posture}), as the Endotherm
+#'   developers' metabolic chamber instructions describe. An integer forces
+#'   that one posture (only that posture enabled, and used as the start and
+#'   end posture): 1 = all body parts modeled, all touching the ground; 2 =
+#'   legs lumped into the torso, head and neck held up; 3 = legs lumped into the
+#'   torso, head and neck on the ground; 4 = the whole animal as one shape.
 #'
 #' @return An object of class \code{"metchamber_result"}: a list with
 #'   \code{hourplot} (named list of data frames, one per scenario that
@@ -592,6 +604,17 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 #' concurrent_core_temp_increase_enabled/
 #' concurrent_core_temp_decrease_enabled = "N"}; \code{flying_digging}
 #' \code{flight_enabled/fossorial_enabled/digging_enabled/arboreal_enabled = "N"}.
+#' Panting is also disabled by setting \code{physiology$o2_extraction_min_pct}
+#' to the animal's \code{o2_extraction_max_pct} (unless \code{mc_overrides}
+#' supplies \code{o2_extraction_min_pct} itself). Following the Endotherm
+#' developers' metabolic chamber instructions, sweating and panting are not
+#' indicative of the thermoneutral zone: with both off, the temperature at
+#' which predicted metabolic rate falls below the target line in a standing
+#' scenario is where the animal has exhausted flesh conductivity and core
+#' temperature and would begin to pant, i.e. the upper critical temperature.
+#' The lower critical temperature is read from the curled scenarios, where
+#' predicted metabolic rate rises above the target line.
+#'
 #' If a scenario's exe run fails, a
 #' \code{warning()} is issued and that scenario is omitted from
 #' \code{$hourplot} (recorded as a failure in \code{$log}); the function only
@@ -608,7 +631,8 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
                                    headless = FALSE,
                                    wineprefix = NULL,
                                    temp_range = c(-40, 45),
-                                   temp_step = 1) {
+                                   temp_step = 1,
+                                   curled_posture = NULL) {
 
   if (!all(scenarios %in% .mc_scenario_ids))
     stop(sprintf("'scenarios' must be from: %s", paste(.mc_scenario_ids, collapse = ", ")))
@@ -632,6 +656,10 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
     ))
   }
 
+  if (!is.null(curled_posture) &&
+      (length(curled_posture) != 1 || !curled_posture %in% 1:4))
+    stop("'curled_posture' must be NULL or a single integer from 1 to 4")
+
   ramp <- .mc_build_ramp(temp_range, temp_step)
   fixed_overrides <- utils::modifyList(.default_mc_overrides(), mc_overrides)
   target_rmr_trgt <- .mc_target_rmr(endo_inputs)  # compute once, before the loop - warns early if class isn't MAMMAL
@@ -647,11 +675,13 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
     dir.create(scenario_dir)
     scenario_dirs <- c(scenario_dirs, scenario_dir)
 
-    scen_overrides <- .mc_scenario_overrides(scenario_id, endo_inputs)
+    scen_overrides <- .mc_scenario_overrides(scenario_id, endo_inputs, curled_posture)
 
     merged <- endo_inputs
     for (grp in names(fixed_overrides))
       merged[[grp]] <- utils::modifyList(merged[[grp]], fixed_overrides[[grp]])
+    if (is.null(mc_overrides$physiology$o2_extraction_min_pct))
+      merged$physiology$o2_extraction_min_pct <- merged$physiology$o2_extraction_max_pct
     for (grp in names(scen_overrides))
       merged[[grp]] <- utils::modifyList(merged[[grp]], scen_overrides[[grp]])
     merged$model_settings <- utils::modifyList(
