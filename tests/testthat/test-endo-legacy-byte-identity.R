@@ -1,9 +1,10 @@
 read_bytes <- function(path) readBin(path, "raw", file.size(path))
 
-expect_same_files <- function(new_dir, ref_dir, fix_endo = FALSE) {
+expect_same_files <- function(new_dir, ref_dir, fix_endo = FALSE, fix_alomvars = FALSE) {
   for (f in c("endo.dat", "alomvars.dat", "JULDAYS.DAT")) {
     ref <- read_bytes(file.path(ref_dir, f))
     if (fix_endo && f == "endo.dat") ref <- legacy_apply_fixes_endo_dat(ref)
+    if (fix_alomvars && f == "alomvars.dat") ref <- legacy_apply_fixes_alomvars(ref)
     expect_identical(read_bytes(file.path(new_dir, f)), ref, info = f)
   }
 }
@@ -15,7 +16,7 @@ test_that("scenario A (all defaults) reproduces the legacy files byte-for-byte",
   d <- get_endotherm_defaults()
   do.call(write_endotherm_inputs, c(list(output_dir = tmp), d))
   write_juldays_dat(tmp, model_settings = d$model_settings)
-  expect_same_files(tmp, file.path(legacy_dir(), "scenario_a"), fix_endo = TRUE)
+  expect_same_files(tmp, file.path(legacy_dir(), "scenario_a"), fix_endo = TRUE, fix_alomvars = TRUE)
 })
 
 test_that("scenario B (stress inputs, julnum = 6, partial groups) reproduces the legacy files", {
@@ -26,5 +27,5 @@ test_that("scenario B (stress inputs, julnum = 6, partial groups) reproduces the
   on.exit(unlink(tmp, recursive = TRUE))
   do.call(write_endotherm_inputs, c(list(output_dir = tmp), args))
   write_juldays_dat(tmp, model_settings = args$model_settings, habitat_settings = saved$habitat)
-  expect_same_files(tmp, file.path(legacy_dir(), "scenario_b"))
+  expect_same_files(tmp, file.path(legacy_dir(), "scenario_b"), fix_alomvars = TRUE)
 })
