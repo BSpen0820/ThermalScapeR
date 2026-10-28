@@ -16,7 +16,7 @@ test_that("built-in root species resolves to the renamed legacy defaults", {
     legacy <- readRDS(file.path(legacy_dir(), case$file))
     resolved <- .endo_resolve_preset(endotherm_species_presets, "Female Bighorn - Winter",
                                      case$julnum, case$juldays)
-    expect_identical(resolved, legacy_to_new(legacy), info = case$file)
+    expect_identical(resolved, legacy_apply_fixes(legacy_to_new(legacy)), info = case$file)
   }
 })
 

@@ -26,6 +26,21 @@ endotherm_preset_template_for_test <- function() {
   tbl
 }
 
+# Deliberate departures of the built-in Bighorn preset from the frozen legacy
+# fixtures: tree sleep and huddling were wrongly enabled in the legacy script.
+legacy_apply_fixes <- function(x) {
+  x$thermoreg$tree_sleep_enabled <- "N"
+  x$thermoreg$huddle_enabled <- "N"
+  x
+}
+
+legacy_apply_fixes_endo_dat <- function(bytes) {
+  txt <- rawToChar(bytes)
+  fixed <- sub("\n'Y'(\t    85\\.0\t )'Y'(\t   3\t)", "\n'N'\\1'N'\\2", txt)
+  stopifnot(!identical(fixed, txt))
+  charToRaw(fixed)
+}
+
 legacy_to_new <- function(x, map = legacy_rename_map(), prefix = "") {
   lookup <- stats::setNames(map$new_path, map$old_path)
   out <- list()

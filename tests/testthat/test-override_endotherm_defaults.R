@@ -1,8 +1,8 @@
 test_that("scalar overrides replace exactly the named field", {
   d <- get_endotherm_defaults()
-  out <- override_endotherm_defaults(d, animal.body_mass = 60, thermoreg.huddle_enabled = "N")
+  out <- override_endotherm_defaults(d, animal.body_mass = 60, thermoreg.huddle_enabled = "Y")
   expect_identical(out$animal$body_mass, 60)
-  expect_identical(out$thermoreg$huddle_enabled, "N")
+  expect_identical(out$thermoreg$huddle_enabled, "Y")
   out$animal$body_mass <- d$animal$body_mass
   out$thermoreg$huddle_enabled <- d$thermoreg$huddle_enabled
   expect_identical(out, d)

@@ -46,8 +46,8 @@ test_that("species must be a single string", {
 })
 
 test_that("an unknown species lists the available ones", {
-  expect_error(get_endotherm_defaults("Moose - Winter"),
-               "Unknown species 'Moose - Winter'.*Female Bighorn - Winter")
+  expect_error(get_endotherm_defaults("Pronghorn - Winter"),
+               "Unknown species 'Pronghorn - Winter'.*Female Bighorn - Winter")
 })
 
 test_that("species matching is case-insensitive", {
@@ -55,7 +55,25 @@ test_that("species matching is case-insensitive", {
 })
 
 test_that("list_endotherm_species returns the built-in species", {
-  expect_identical(list_endotherm_species(), "Female Bighorn - Winter")
+  expect_identical(list_endotherm_species(), c("Female Bighorn - Winter", "Female Alaskan Moose - Winter"))
+})
+
+test_that("the Alaskan moose preset resolves to the AlaskaEndoAlom values and writes valid files", {
+  d <- get_endotherm_defaults("Female Alaskan Moose - Winter", julnum = 52, juldays = seq(8, 365, by = 7))
+  expect_identical(d$animal$body_mass, 438)
+  expect_identical(d$animal$metabolic_rate, 322.16)
+  expect_identical(d$fur$parts$torso$hair_length_dorsal, 96.65)
+  expect_identical(d$fur$fur_depth_dorsal, 64.35)
+  expect_identical(d$allometry$parts$torso$length, 132.63)
+  expect_identical(d$thermoreg$huddle_enabled, "N")
+  expect_identical(unique(d$diet$crepuscular_enabled), "Y")
+  expect_identical(unique(c(d$diet$diurnal_enabled, d$diet$nocturnal_enabled)), "N")
+  expect_identical(d$model_settings$appendage_config, "4APNDG")
+  expect_length(d$diet$food_protein_frac, 52)
+  tmp <- tempfile("endo_moose_"); dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE))
+  do.call(write_endotherm_inputs, c(list(output_dir = tmp), d))
+  expect_true(any(grepl("Animal species = Female Alaskan Moose", readLines(file.path(tmp, "endo.dat")))))
 })
 
 test_that("presets accepts a CSV path, including Excel-style BOM, padding and blank rows", {

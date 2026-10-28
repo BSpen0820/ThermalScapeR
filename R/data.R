@@ -229,5 +229,10 @@ NULL
 #'
 #' @source \code{"Female Bighorn - Winter"} is the reference parameterization
 #'   extracted from a real NicheMapR Endotherm run (SheepMigrationLoss project,
-#'   \code{endo.dat}/\code{alomvars.dat}); Bryan Spencer.
+#'   \code{endo.dat}/\code{alomvars.dat}); Bryan Spencer. Tree sleep and
+#'   huddling, wrongly enabled in that run, are switched off.
+#'   \code{"Female Alaskan Moose - Winter"} inherits from it and is ported from the
+#'   unshaved Alaska moose baseline of the MoosePeltSimulations project
+#'   (\code{NicheMapper/Modified/AlaskaEndoAlom/endo.dat}/\code{alomvars.dat});
+#'   Bryan Spencer.
 "endotherm_species_presets"
