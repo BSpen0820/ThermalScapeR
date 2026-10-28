@@ -230,11 +230,7 @@ NULL
 #' @source \code{"Female Bighorn - Winter"} is the reference parameterization
 #'   extracted from a real NicheMapR Endotherm run (SheepMigrationLoss project,
 #'   \code{endo.dat}/\code{alomvars.dat}); Bryan Spencer. Tree sleep and
-#'   huddling, wrongly enabled in that run, are switched off. Leg core-temperature
-#'   reduction (countercurrent heat exchange in the legs; fraction mode, 0.3 of
-#'   the core-to-ground gradient, minimum 2.5 C, legs allowed to warm back
-#'   toward core when hot), off in that run, is switched on; the moose inherits
-#'   it.
+#'   huddling, wrongly enabled in that run, are switched off.
 #'   \code{"Female Alaskan Moose - Winter"} inherits from it and is ported from the
 #'   unshaved Alaska moose baseline of the MoosePeltSimulations project
 #'   (\code{NicheMapper/Modified/AlaskaEndoAlom/endo.dat}/\code{alomvars.dat});
@@ -248,5 +244,8 @@ NULL
 #'   322-327. To compare \code{\link{run_metabolic_chamber}} output with
 #'   Renecker & Hudson's winter thermoregulation data (standing, fed cows),
 #'   set \code{metabolic_rate} to their 18.8 kJ kg^-0.75 h^-1 (500 W at
-#'   438 kg) for the chamber run only.
+#'   438 kg) for the chamber run only. Unlike the bighorn, the moose has leg
+#'   core-temperature reduction switched on (countercurrent heat exchange in
+#'   the legs; fraction mode, 0.3 of the core-to-ground gradient, minimum
+#'   2.5 C, legs allowed to warm back toward core when hot).
 "endotherm_species_presets"

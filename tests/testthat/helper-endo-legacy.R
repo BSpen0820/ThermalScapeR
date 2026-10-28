@@ -31,23 +31,12 @@ endotherm_preset_template_for_test <- function() {
 legacy_apply_fixes <- function(x) {
   x$thermoreg$tree_sleep_enabled <- "N"
   x$thermoreg$huddle_enabled <- "N"
-  x$allometry$core_temp_reduction_legs_enabled <- "Y"
-  x$allometry$core_temp_reduction_legs_mode <- "F"
-  x$allometry$leg_temp_increase_if_hot_enabled <- "Y"
   x
 }
 
 legacy_apply_fixes_endo_dat <- function(bytes) {
   txt <- rawToChar(bytes)
   fixed <- sub("\n'Y'(\t    85\\.0\t )'Y'(\t   3\t)", "\n'N'\\1'N'\\2", txt)
-  stopifnot(!identical(fixed, txt))
-  charToRaw(fixed)
-}
-
-legacy_apply_fixes_alomvars <- function(bytes) {
-  txt <- rawToChar(bytes)
-  fixed <- sub("\n'N'(\t\t'N'\t\t)'D'(\t   'D'\t\t0\\.30\t   0\\.30\t\t1\\.00\t1\\.00\t\t2\\.50\t\t   )'N'",
-               "\n'Y'\\1'F'\\2'Y'", txt)
   stopifnot(!identical(fixed, txt))
   charToRaw(fixed)
 }
