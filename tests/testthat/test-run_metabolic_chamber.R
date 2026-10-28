@@ -257,7 +257,7 @@ test_that("run_metabolic_chamber runs all 4 real scenarios end-to-end", {
   expect_equal(nrow(result$dimensions), 6)
   expect_true(is.numeric(result$target_rmr$trgt))
   for (hp in result$hourplot) {
-    expect_equal(nrow(hp), 86) # length(c(2:23, 27:48, 52:73, 77:96))
+    expect_equal(nrow(hp), 86) # default temp_range c(-40, 45), 1 degC steps
     expect_true("MET.W." %in% names(hp))
     expect_true("TAIR" %in% names(hp))
   }

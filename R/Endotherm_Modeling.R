@@ -384,6 +384,48 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 
 .mc_ramp_juldays <- c(15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)
 
+# Ramp steps per julian day: hours 1-22; hours 0 and 23 are 0 degC buffers.
+.mc_ramp_hours <- 22L
+
+.mc_build_ramp <- function(temp_range, temp_step) {
+  if (!is.numeric(temp_range) || length(temp_range) != 2 || anyNA(temp_range) ||
+      temp_range[1] >= temp_range[2])
+    stop("'temp_range' must be a numeric c(min, max) with min < max")
+  if (!is.numeric(temp_step) || length(temp_step) != 1 || is.na(temp_step) || temp_step <= 0)
+    stop("'temp_step' must be a single positive number")
+
+  temps <- seq(temp_range[1], temp_range[2], by = temp_step)
+  max_steps <- .mc_ramp_hours * length(.mc_ramp_juldays)
+  if (length(temps) > max_steps)
+    stop(sprintf(
+      "'temp_range' c(%g, %g) at 'temp_step' %g needs %d ramp hours, but the chamber's %d days hold at most %d (%d per day) - narrow temp_range or increase temp_step",
+      temp_range[1], temp_range[2], temp_step, length(temps), length(.mc_ramp_juldays),
+      max_steps, .mc_ramp_hours
+    ))
+
+  idx <- seq_along(temps) - 1L
+  day <- idx %/% .mc_ramp_hours + 1L
+  hr  <- idx %% .mc_ramp_hours + 1L
+
+  metout <- metchamber_metout
+  soil <- metchamber_soil
+  ta_cols <- c("TALOC", "TALOC.1", "TALOC.2")
+  soil_cols <- grep("^D[0-9]", names(soil), value = TRUE)
+
+  ramp_days <- unique(day)
+  metout$ZEN[unlist(lapply(ramp_days, function(d) (d - 1L) * 24L + 1:24))] <- 85
+  buffers <- c((ramp_days - 1L) * 24L + 1L, ramp_days * 24L)
+  metout[buffers, ta_cols] <- 0
+  soil[buffers, soil_cols] <- 0
+
+  rows <- (day - 1L) * 24L + hr + 1L
+  metout[rows, ta_cols] <- temps
+  soil[rows, soil_cols] <- temps
+
+  # HOURPLOT.csv has 25 rows per day (HR 0-24)
+  list(metout = metout, soil = soil, hourplot_rows = (day - 1L) * 25L + hr + 1L)
+}
+
 .default_mc_overrides <- function() {
   list(
     model_settings = list(output_file_enabled = "Y", microclimate_input_format = "CSV",
@@ -467,9 +509,10 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 
 #' Run NicheMapR Endotherm metabolic chamber calibration scenarios
 #'
-#' Exposes an animal model built from \code{endo_inputs} to a synthetic,
-#' hand-crafted temperature ramp (\code{\link{metchamber_metout}}/
-#' \code{\link{metchamber_soil}}) across up to 4 canonical scenarios -
+#' Exposes an animal model built from \code{endo_inputs} to a synthetic
+#' air/ground temperature ramp (built on \code{\link{metchamber_metout}}/
+#' \code{\link{metchamber_soil}}, range set by \code{temp_range}) across up
+#' to 4 canonical scenarios -
 #' \{standing, curled\} x \{variable, constant core temperature\} - the way a
 #' real metabolic chamber experiment would, and returns the resulting
 #' metabolic-rate-vs-temperature data. Each scenario is built independently
@@ -512,10 +555,20 @@ init_wine_prefix <- function(wineprefix, headless = TRUE) {
 #'   private, unshared Wine prefix. A path means a \emph{shared} prefix that
 #'   must already be initialized via \code{\link{init_wine_prefix}}. Ignored on
 #'   Windows.
+#' @param temp_range Numeric \code{c(min, max)} air temperature (degC) the
+#'   chamber ramps across. Default \code{c(-40, 45)} reproduces the bundled
+#'   ramp. Widen it (e.g. \code{c(-60, 45)}) when the lower or upper critical
+#'   temperature falls outside the default range.
+#' @param temp_step Positive number, degC step between consecutive ramp hours.
+#'   Default \code{1}. The ramp is spread over the chamber's 12 julian days
+#'   at 22 hours each, so at most 264 steps fit
+#'   (\code{diff(temp_range) / temp_step + 1 <= 264}); a coarser step allows a
+#'   wider range.
 #'
 #' @return An object of class \code{"metchamber_result"}: a list with
 #'   \code{hourplot} (named list of data frames, one per scenario that
-#'   actually succeeded - the relevant hours of \code{HOURPLOT.csv}),
+#'   actually succeeded - the \code{HOURPLOT.csv} rows of the ramp hours, one
+#'   per \code{temp_range}/\code{temp_step} temperature, in ramp order),
 #'   \code{dimensions} (data frame, body-part dimensions parsed from one
 #'   successful scenario's \code{OUTPUT} file - scenario-invariant),
 #'   \code{target_rmr} (list with \code{trgt} and \code{err}, for plotting
@@ -553,7 +606,9 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
                                    save_dir = NULL,
                                    sysname = Sys.info()[["sysname"]],
                                    headless = FALSE,
-                                   wineprefix = NULL) {
+                                   wineprefix = NULL,
+                                   temp_range = c(-40, 45),
+                                   temp_step = 1) {
 
   if (!all(scenarios %in% .mc_scenario_ids))
     stop(sprintf("'scenarios' must be from: %s", paste(.mc_scenario_ids, collapse = ", ")))
@@ -577,6 +632,7 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
     ))
   }
 
+  ramp <- .mc_build_ramp(temp_range, temp_step)
   fixed_overrides <- utils::modifyList(.default_mc_overrides(), mc_overrides)
   target_rmr_trgt <- .mc_target_rmr(endo_inputs)  # compute once, before the loop - warns early if class isn't MAMMAL
 
@@ -624,10 +680,10 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
                                multihab = "N")
     )
 
-    utils::write.csv(metchamber_metout, file.path(scenario_dir, "metout.csv"), row.names = FALSE)
-    utils::write.csv(metchamber_metout, file.path(scenario_dir, "shadmet.csv"), row.names = FALSE)
-    utils::write.csv(metchamber_soil, file.path(scenario_dir, "soil.csv"), row.names = FALSE)
-    utils::write.csv(metchamber_soil, file.path(scenario_dir, "shadsoil.csv"), row.names = FALSE)
+    utils::write.csv(ramp$metout, file.path(scenario_dir, "metout.csv"), row.names = FALSE)
+    utils::write.csv(ramp$metout, file.path(scenario_dir, "shadmet.csv"), row.names = FALSE)
+    utils::write.csv(ramp$soil, file.path(scenario_dir, "soil.csv"), row.names = FALSE)
+    utils::write.csv(ramp$soil, file.path(scenario_dir, "shadsoil.csv"), row.names = FALSE)
 
     if (!is.null(save_dir)) {
       file.copy(file.path(scenario_dir, "endo.dat"),
@@ -660,7 +716,7 @@ run_metabolic_chamber <- function(endo_inputs, exe_path,
       next
     }
     hp <- utils::read.csv(hourplot_path, skip = 1)
-    hourplot[[scenario_id]] <- hp[c(2:23, 27:48, 52:73, 77:96), ]
+    hourplot[[scenario_id]] <- hp[ramp$hourplot_rows, ]
 
     if (is.null(dimensions)) {
       dim_result <- tryCatch(

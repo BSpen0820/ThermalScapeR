@@ -12,7 +12,9 @@ run_metabolic_chamber(
   save_dir = NULL,
   sysname = Sys.info()[["sysname"]],
   headless = FALSE,
-  wineprefix = NULL
+  wineprefix = NULL,
+  temp_range = c(-40, 45),
+  temp_step = 1
 )
 }
 \arguments{
@@ -57,11 +59,23 @@ Windows.}
 private, unshared Wine prefix. A path means a \emph{shared} prefix that
 must already be initialized via \code{\link{init_wine_prefix}}. Ignored on
 Windows.}
+
+\item{temp_range}{Numeric \code{c(min, max)} air temperature (degC) the
+chamber ramps across. Default \code{c(-40, 45)} reproduces the bundled
+ramp. Widen it (e.g. \code{c(-60, 45)}) when the lower or upper critical
+temperature falls outside the default range.}
+
+\item{temp_step}{Positive number, degC step between consecutive ramp hours.
+Default \code{1}. The ramp is spread over the chamber's 12 julian days
+at 22 hours each, so at most 264 steps fit
+(\code{diff(temp_range) / temp_step + 1 <= 264}); a coarser step allows a
+wider range.}
 }
 \value{
 An object of class \code{"metchamber_result"}: a list with
 \code{hourplot} (named list of data frames, one per scenario that
-actually succeeded - the relevant hours of \code{HOURPLOT.csv}),
+actually succeeded - the \code{HOURPLOT.csv} rows of the ramp hours, one
+per \code{temp_range}/\code{temp_step} temperature, in ramp order),
 \code{dimensions} (data frame, body-part dimensions parsed from one
 successful scenario's \code{OUTPUT} file - scenario-invariant),
 \code{target_rmr} (list with \code{trgt} and \code{err}, for plotting
@@ -69,9 +83,10 @@ reference lines), and \code{log} (data frame: \code{scenario, success,
   message, timestamp}, one row per requested scenario).
 }
 \description{
-Exposes an animal model built from \code{endo_inputs} to a synthetic,
-hand-crafted temperature ramp (\code{\link{metchamber_metout}}/
-\code{\link{metchamber_soil}}) across up to 4 canonical scenarios -
+Exposes an animal model built from \code{endo_inputs} to a synthetic
+air/ground temperature ramp (built on \code{\link{metchamber_metout}}/
+\code{\link{metchamber_soil}}, range set by \code{temp_range}) across up
+to 4 canonical scenarios -
 \{standing, curled\} x \{variable, constant core temperature\} - the way a
 real metabolic chamber experiment would, and returns the resulting
 metabolic-rate-vs-temperature data. Each scenario is built independently

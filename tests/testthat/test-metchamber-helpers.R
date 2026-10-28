@@ -117,3 +117,44 @@ test_that(".mc_parse_dimensions extracts a 6-row body-part dimension table from 
   expect_equal(dims[["Vertical or Side-to-Side Diameter (m)"]], c(0.10, 0.20, 0.30, 0.40, 0.50, 0.60))
   expect_equal(dims[["Mass (kg)"]], c(1.1, 2.2, 3.3, 4.4, 5.5, 6.6))
 })
+
+test_that(".mc_build_ramp default range reproduces the bundled chamber files and HOURPLOT rows", {
+  ramp <- .mc_build_ramp(c(-40, 45), 1)
+  expect_equal(ramp$metout, metchamber_metout)
+  expect_equal(ramp$soil, metchamber_soil)
+  expect_equal(ramp$hourplot_rows, c(2:23, 27:48, 52:73, 77:96))
+})
+
+test_that(".mc_build_ramp spreads a wider range onto later days with 0 degC buffer hours", {
+  ramp <- .mc_build_ramp(c(-60, 45), 1)
+  temps <- -60:45
+  expect_length(ramp$hourplot_rows, length(temps))
+  expect_equal(ramp$hourplot_rows[1:3], 2:4)
+  expect_equal(ramp$hourplot_rows[length(temps)], 4L * 25L + 18L + 1L)
+
+  ramp_rows <- unlist(lapply(1:5, function(d) (d - 1) * 24 + 2:23))[seq_along(temps)]
+  expect_equal(ramp$metout$TALOC[ramp_rows], temps)
+  expect_equal(ramp$metout$TALOC.2[ramp_rows], temps)
+  expect_equal(ramp$soil$D0cm[ramp_rows], temps)
+  expect_equal(ramp$soil$D200cm[ramp_rows], temps)
+  expect_equal(ramp$metout$TALOC[c(97, 120)], c(0, 0))
+  expect_equal(ramp$soil$D10cm[c(97, 120)], c(0, 0))
+  expect_true(all(ramp$metout$ZEN[97:120] == 85))
+  expect_equal(ramp$metout[121:288, ], metchamber_metout[121:288, ])
+})
+
+test_that(".mc_build_ramp supports fractional steps", {
+  ramp <- .mc_build_ramp(c(-10, 10), 0.5)
+  expect_length(ramp$hourplot_rows, 41)
+  expect_equal(ramp$metout$TALOC[2:4], c(-10, -9.5, -9))
+})
+
+test_that(".mc_build_ramp rejects invalid ranges, steps, and ramps that do not fit 12 days", {
+  expect_error(.mc_build_ramp(c(10, -10), 1), "temp_range")
+  expect_error(.mc_build_ramp(c(-10, NA), 1), "temp_range")
+  expect_error(.mc_build_ramp(-10, 1), "temp_range")
+  expect_error(.mc_build_ramp(c(-10, 10), 0), "temp_step")
+  expect_error(.mc_build_ramp(c(-10, 10), c(1, 2)), "temp_step")
+  expect_error(.mc_build_ramp(c(-200, 100), 1), "at most 264")
+  expect_length(.mc_build_ramp(c(-200, 100), 2)$hourplot_rows, 151)
+})
