@@ -234,5 +234,15 @@ NULL
 #'   \code{"Female Alaskan Moose - Winter"} inherits from it and is ported from the
 #'   unshaved Alaska moose baseline of the MoosePeltSimulations project
 #'   (\code{NicheMapper/Modified/AlaskaEndoAlom/endo.dat}/\code{alomvars.dat});
-#'   Bryan Spencer.
+#'   Bryan Spencer. Its basal metabolic rate (436.6 W = 394 kJ kg^-0.75 d^-1,
+#'   the winter Nov-Mar mean for fasted, lying Alaskan moose) is from Regelin,
+#'   W. L., Schwartz, C. C. & Franzmann, A. W. (1985) Seasonal energy
+#'   metabolism of adult moose. J. Wildl. Manage. 49: 388-393. Its core
+#'   temperatures (target 38.6, min 38.0, max 39.7 C; rectal mean and range)
+#'   are from Renecker, L. A. & Hudson, R. J. (1986) Seasonal energy
+#'   expenditures and thermoregulatory responses of moose. Can. J. Zool. 64:
+#'   322-327. To compare \code{\link{run_metabolic_chamber}} output with
+#'   Renecker & Hudson's winter thermoregulation data (standing, fed cows),
+#'   set \code{metabolic_rate} to their 18.8 kJ kg^-0.75 h^-1 (500 W at
+#'   438 kg) for the chamber run only.
 "endotherm_species_presets"

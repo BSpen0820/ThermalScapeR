@@ -61,7 +61,7 @@ test_that("list_endotherm_species returns the built-in species", {
 test_that("the Alaskan moose preset resolves to the AlaskaEndoAlom values and writes valid files", {
   d <- get_endotherm_defaults("Female Alaskan Moose - Winter", julnum = 52, juldays = seq(8, 365, by = 7))
   expect_identical(d$animal$body_mass, 438)
-  expect_identical(d$animal$metabolic_rate, 322.16)
+  expect_identical(d$animal$metabolic_rate, 436.6)
   expect_identical(d$fur$parts$torso$hair_length_dorsal, 96.65)
   expect_identical(d$fur$fur_depth_dorsal, 64.35)
   expect_identical(d$allometry$parts$torso$length, 132.63)
