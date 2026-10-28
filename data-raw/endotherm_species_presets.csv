@@ -11,7 +11,7 @@
 "model_settings.geometry_axis_ratio","numeric","FALSE","3",
 "model_settings.appendage_config","character","FALSE","4APNDG",
 "model_settings.ventral_substrate_contact_frac","numeric","FALSE","0","0.7"
-"model_settings.substrate_conduction_enabled","character","FALSE","N","Y"
+"model_settings.substrate_conduction_enabled","character","FALSE","N","N"
 "model_settings.fur_compression_frac","numeric","FALSE","0.5",
 "model_settings.user_allometry_enabled","character","FALSE","Y",
 "model_settings.activity_heat_enabled","character","FALSE","Y",
