@@ -1403,7 +1403,8 @@ write_endotherm_inputs <- function(output_dir,
   taloc <- abv_series$Tz
   rhloc <- abv_series$relhum
   vloc  <- abv_series$windspeed
-  solr  <- abv_series$Rdirdown + abv_series$Rdifdown
+  # microclimf's Rdirdown is the beam on a surface facing the sun; the exe's SOLR is global horizontal
+  solr  <- abv_series$Rdirdown * pmax(cos(zen * pi / 180), 0) + abv_series$Rdifdown
   tskyc <- (abv_series$Rlwdown / sigma)^0.25 - 273.15
 
   elev_col <- c(elev, rep(0, n - 1L))
@@ -1605,7 +1606,8 @@ micro_to_csv_clamp_defaults <- function() {
 #' there is no separate reference-height (1.2 m) series to source them from.
 #' \code{ZEN} is computed via \code{solaR} from the cell's reprojected
 #' lon/lat and local solar time, clamped to a maximum of 90 (below-horizon
-#' convention). \code{SOLR = Rdirdown + Rdifdown}. \code{TSKYC} is derived
+#' convention). \code{SOLR = Rdirdown * cos(ZEN) + Rdifdown} (global horizontal: microclimf's
+#' \code{Rdirdown} is the beam perpendicular to the sun). \code{TSKYC} is derived
 #' from \code{Rlwdown} via Stefan-Boltzmann inversion
 #' (\code{(Rlwdown/sigma)^0.25 - 273.15}) -- this is not an approximation:
 #' microclimf's \code{Rlwdown} is the same combined downward-longwave

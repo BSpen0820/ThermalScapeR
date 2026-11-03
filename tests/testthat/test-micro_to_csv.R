@@ -441,7 +441,7 @@ test_that(".mtc_build_metout produces the exact 13-column shape of the reference
   expect_equal(out$TALOC, out$TAREF)
   expect_equal(out$RHLOC, out$RH)
   expect_equal(out$VLOC, out$VREF)
-  expect_equal(out$SOLR, c(0, 110, 220))
+  expect_equal(out$SOLR, c(0, 100 * cos(pi / 3) + 10, 200 * cos(pi / 6) + 20))   # beam-normal Rdirdown -> horizontal
   expect_equal(out$ELEV, c(1850, 0, 0))
   expect_equal(out$TANNUL, c(5.5, 5.5, 5.5))
 

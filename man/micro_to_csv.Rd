@@ -86,7 +86,8 @@ and \code{shadsoil} of \code{soil}.
 there is no separate reference-height (1.2 m) series to source them from.
 \code{ZEN} is computed via \code{solaR} from the cell's reprojected
 lon/lat and local solar time, clamped to a maximum of 90 (below-horizon
-convention). \code{SOLR = Rdirdown + Rdifdown}. \code{TSKYC} is derived
+convention). \code{SOLR = Rdirdown * cos(ZEN) + Rdifdown} (global horizontal: microclimf's
+\code{Rdirdown} is the beam perpendicular to the sun). \code{TSKYC} is derived
 from \code{Rlwdown} via Stefan-Boltzmann inversion
 (\code{(Rlwdown/sigma)^0.25 - 273.15}) -- this is not an approximation:
 microclimf's \code{Rlwdown} is the same combined downward-longwave
