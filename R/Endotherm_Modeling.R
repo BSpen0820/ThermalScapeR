@@ -198,7 +198,8 @@ cells_for_array_task <- function(valid_cell_indices, clust_array_arg = NULL, clu
 #' \code{metout.csv}, \code{shadmet.csv}, \code{soil.csv}, \code{shadsoil.csv})
 #' from its current working directory - the exe itself need not live in
 #' \code{workspace_dir}. On Windows the exe is run natively, and so is a native build on any OS
-#' (an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source). A
+#' (an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source; off
+#' Windows \code{endo.dat} is also copied to \code{ENDO.DAT}, the name the Fortran opens). A
 #' \code{.exe} off Windows is
 #' run under Wine, either with a private, unshared prefix
 #' (\code{wineprefix = NULL}, the default) or against an already-initialized
@@ -270,6 +271,8 @@ run_endotherm_model <- function(workspace_dir, exe_path,
   setwd(workspace_dir)
 
   if (.endo_is_native(exe_path, sysname)) {
+    # the Fortran opens ENDO.DAT by name: Windows ignores case, Linux/macOS do not
+    if (!identical(sysname, "Windows") && file.exists("endo.dat")) file.copy("endo.dat", "ENDO.DAT", overwrite = TRUE)
     exe_output <- system2(exe_path, input = c("alomvars.dat", "endo.dat"), stdout = TRUE, stderr = TRUE,
                            timeout = timeout)
     status <- attr(exe_output, "status")

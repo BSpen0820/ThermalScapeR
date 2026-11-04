@@ -63,7 +63,8 @@ Invokes the compiled Endotherm model exe, which must be pointed at by
 \code{metout.csv}, \code{shadmet.csv}, \code{soil.csv}, \code{shadsoil.csv})
 from its current working directory - the exe itself need not live in
 \code{workspace_dir}. On Windows the exe is run natively, and so is a native build on any OS
-(an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source). A
+(an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source; off
+Windows \code{endo.dat} is also copied to \code{ENDO.DAT}, the name the Fortran opens). A
 \code{.exe} off Windows is
 run under Wine, either with a private, unshared prefix
 (\code{wineprefix = NULL}, the default) or against an already-initialized
