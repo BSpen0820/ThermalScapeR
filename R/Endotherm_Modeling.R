@@ -197,7 +197,9 @@ cells_for_array_task <- function(valid_cell_indices, clust_array_arg = NULL, clu
 #' (\code{alomvars.dat}, \code{endo.dat}, \code{JULDAYS.DAT},
 #' \code{metout.csv}, \code{shadmet.csv}, \code{soil.csv}, \code{shadsoil.csv})
 #' from its current working directory - the exe itself need not live in
-#' \code{workspace_dir}. On Windows the exe is run natively. Elsewhere it is
+#' \code{workspace_dir}. On Windows the exe is run natively, and so is a native build on any OS
+#' (an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source). A
+#' \code{.exe} off Windows is
 #' run under Wine, either with a private, unshared prefix
 #' (\code{wineprefix = NULL}, the default) or against an already-initialized
 #' shared prefix (\code{wineprefix} set - see \code{\link{init_wine_prefix}}).
@@ -211,7 +213,7 @@ cells_for_array_task <- function(valid_cell_indices, clust_array_arg = NULL, clu
 #' @param exe_path Character. Full path to the Endotherm model executable -
 #'   it does not need to be inside \code{workspace_dir}.
 #' @param sysname Character, one of \code{Sys.info()[["sysname"]]}'s possible
-#'   values. Determines native vs Wine invocation. Default detects the
+#'   values. Determines native vs Wine invocation of a \code{.exe}. Default detects the
 #'   current OS.
 #' @param wineprefix Character or \code{NULL} (default). \code{NULL} means a
 #'   private, unshared Wine prefix is created (via \code{\link{init_wine_prefix}})
@@ -267,7 +269,7 @@ run_endotherm_model <- function(workspace_dir, exe_path,
   on.exit(setwd(old_wd), add = TRUE)
   setwd(workspace_dir)
 
-  if (identical(sysname, "Windows")) {
+  if (.endo_is_native(exe_path, sysname)) {
     exe_output <- system2(exe_path, input = c("alomvars.dat", "endo.dat"), stdout = TRUE, stderr = TRUE,
                            timeout = timeout)
     status <- attr(exe_output, "status")
@@ -322,6 +324,11 @@ run_endotherm_model <- function(workspace_dir, exe_path,
     success = any(grepl("Calculations completed\\.", error_msgs)),
     message = paste(c(sprintf("exit status %s", status), error_msgs), collapse = " | ")
   )
+}
+
+# TRUE when the exe runs directly: on Windows, or a native build (no .exe) on any OS
+.endo_is_native <- function(exe_path, sysname = Sys.info()[["sysname"]]) {
+  identical(sysname, "Windows") || !grepl("[.]exe$", exe_path, ignore.case = TRUE)
 }
 
 #' Initialize a shared Wine prefix for the Endotherm model
@@ -1463,7 +1470,7 @@ run_endo_big_nichemap <- function(tile_map, valid_cells_mask, dates, microclim_d
 
   date_ranges <- .normalize_dates_with_sim_window(dates)
 
-  if (Sys.info()[["sysname"]] != "Windows") {
+  if (!.endo_is_native(exe_path)) {
     init_wine_prefix(wineprefix, headless = headless)
   }
 

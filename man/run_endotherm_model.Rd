@@ -25,7 +25,7 @@ etc.) also land here.}
 it does not need to be inside \code{workspace_dir}.}
 
 \item{sysname}{Character, one of \code{Sys.info()[["sysname"]]}'s possible
-values. Determines native vs Wine invocation. Default detects the
+values. Determines native vs Wine invocation of a \code{.exe}. Default detects the
 current OS.}
 
 \item{wineprefix}{Character or \code{NULL} (default). \code{NULL} means a
@@ -62,7 +62,9 @@ Invokes the compiled Endotherm model exe, which must be pointed at by
 (\code{alomvars.dat}, \code{endo.dat}, \code{JULDAYS.DAT},
 \code{metout.csv}, \code{shadmet.csv}, \code{soil.csv}, \code{shadsoil.csv})
 from its current working directory - the exe itself need not live in
-\code{workspace_dir}. On Windows the exe is run natively. Elsewhere it is
+\code{workspace_dir}. On Windows the exe is run natively, and so is a native build on any OS
+(an \code{exe_path} not ending in \code{.exe}, e.g. a Linux build of the Fortran source). A
+\code{.exe} off Windows is
 run under Wine, either with a private, unshared prefix
 (\code{wineprefix = NULL}, the default) or against an already-initialized
 shared prefix (\code{wineprefix} set - see \code{\link{init_wine_prefix}}).
