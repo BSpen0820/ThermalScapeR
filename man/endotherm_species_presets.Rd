@@ -20,7 +20,11 @@ huddling, wrongly enabled in that run, are switched off.
 \code{"Female Alaskan Moose - Winter"} inherits from it and is ported from the
 unshaved Alaska moose baseline of the MoosePeltSimulations project
 (\code{NicheMapper/Modified/AlaskaEndoAlom/endo.dat}/\code{alomvars.dat});
-Bryan Spencer. Its basal metabolic rate (436.6 W = 394 kJ kg^-0.75 d^-1,
+Bryan Spencer. Its body-part dimensions (head, neck, torso and leg
+diameters and lengths) and shoulder height (163.3 cm) are geometric means
+of photo measurements of Alaskan moose (Bryan Spencer, MooseGeom), and its
+torso density is 950 kg m^-3 on the advice of the NicheMapper developers
+(other parts keep 1033.6). Its basal metabolic rate (436.6 W = 394 kJ kg^-0.75 d^-1,
 the winter Nov-Mar mean for fasted, lying Alaskan moose) is from Regelin,
 W. L., Schwartz, C. C. & Franzmann, A. W. (1985) Seasonal energy
 metabolism of adult moose. J. Wildl. Manage. 49: 388-393. Its core

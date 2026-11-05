@@ -864,6 +864,233 @@ plot.metchamber_result <- function(x, ...) {
 }
 
 # --------------------------------------------------------------------------- #
+#  Body-geometry plot
+# --------------------------------------------------------------------------- #
+
+.geom_parts_required <- c("head", "neck", "torso", "front_leg", "rear_leg")
+.geom_fields_required <- c("diameter_vertical", "diameter_horizontal", "length",
+                           "fur_depth_dorsal_adjusted", "fur_depth_ventral_adjusted")
+
+# Validate an Endotherm input list and return its body-part dimensions in metres: one row per part
+# (head, neck, torso, front_leg, rear_leg, tail), columns v / h / len (flesh diameters and length),
+# fd / fv (dorsal / ventral fur depth) and geom (Endotherm geometry code).
+.geom_dims <- function(ei, arg = "ei") {
+  parts <- if (is.list(ei) && is.list(ei$allometry)) ei$allometry$parts
+  if (!is.list(parts))
+    stop(sprintf("'%s' must be an Endotherm input list with an allometry$parts element, as returned by get_endotherm_defaults()", arg))
+  missing_parts <- setdiff(.geom_parts_required, names(parts))
+  if (length(missing_parts))
+    stop(sprintf("'%s$allometry$parts' is missing part(s): %s", arg, paste(missing_parts, collapse = ", ")))
+  rows <- lapply(c(.geom_parts_required, "tail"), function(nm) {
+    q <- parts[[nm]]
+    if (is.null(q)) return(c(v = 0, h = 0, len = 0, fd = 0, fv = 0, geom = 0))   # no tail supplied
+    bad <- .geom_fields_required[!vapply(.geom_fields_required, function(f)
+      is.numeric(q[[f]]) && length(q[[f]]) == 1 && is.finite(q[[f]]), logical(1))]
+    if (length(bad))
+      stop(sprintf("'%s$allometry$parts$%s' needs single numeric value(s) for: %s", arg, nm, paste(bad, collapse = ", ")))
+    geom <- if (is.numeric(q$geometry) && length(q$geometry) == 1) q$geometry else NA_real_
+    c(v = q$diameter_vertical / 100, h = q$diameter_horizontal / 100, len = q$length / 100,   # cm -> m
+      fd = q$fur_depth_dorsal_adjusted / 1000, fv = q$fur_depth_ventral_adjusted / 1000,     # mm -> m
+      geom = geom)
+  })
+  d <- as.data.frame(do.call(rbind, rows))
+  rownames(d) <- c(.geom_parts_required, "tail")
+  d
+}
+
+# A part is drawn when it has a length and a diameter, and its geometry code is not 0
+# (0 = absent, e.g. the front legs of a 'birdie').
+.geom_present <- function(q) q$len > 0 && q$v > 0 && (is.na(q$geom) || q$geom != 0)
+
+# Torso bottom and top (top = shoulder height): the torso sits on the front legs (rear legs for a biped).
+.geom_torso_y <- function(d) {
+  leg <- if (.geom_present(d["front_leg", ])) d["front_leg", ] else d["rear_leg", ]
+  yb <- if (.geom_present(leg)) leg$len else 0
+  c(bottom = yb, top = yb + d["torso", "v"])
+}
+
+.geom_box <- function(x0, x1, y0, y1, ...) graphics::polygon(c(x0, x1, x1, x0), c(y0, y0, y1, y1), ...)
+
+.geom_ell <- function(cx, cy, w, h, ...) {
+  a <- seq(0, 2 * pi, length.out = 200)
+  graphics::lines(cx + w / 2 * cos(a), cy + h / 2 * sin(a), ...)
+}
+
+.geom_side <- function(d, col, lwd, fur = TRUE) {
+  t <- d["torso", ]; n <- d["neck", ]; h <- d["head", ]; fl <- d["front_leg", ]; rl <- d["rear_leg", ]
+  tl <- d["tail", ]
+  y <- .geom_torso_y(d); yb <- y[["bottom"]]; yt <- y[["top"]]
+  if (.geom_present(rl)) .geom_box(0, rl$h, 0, yb, border = col, lwd = lwd)              # rear leg, clipped at the torso
+  if (.geom_present(fl)) .geom_box(t$len - fl$h, t$len, 0, fl$len, border = col, lwd = lwd)
+  .geom_box(0, t$len, yb, yt, border = col, lwd = lwd)
+  if (fur) .geom_box(0, t$len, yb - t$fv, yt + t$fd, border = col, lty = 2)
+  if (.geom_present(tl)) {                                                                # tail: top level with the back
+    .geom_box(-tl$len, 0, yt - tl$v, yt, border = col, lwd = lwd)
+    if (fur) .geom_box(-tl$len, 0, yt - tl$v - tl$fv, yt + tl$fd, border = col, lty = 2)
+  }
+  x1 <- t$len
+  if (.geom_present(n)) {                                                                 # neck: top level with the back
+    x1 <- t$len + n$len
+    .geom_box(t$len, x1, yt - n$v, yt, border = col, lwd = lwd)
+    if (fur) .geom_box(t$len, x1, yt - n$v - n$fv, yt + n$fd, border = col, lty = 2)
+  }
+  if (!.geom_present(h)) return(invisible(NULL))
+  x2 <- x1 + h$len; hc <- yt - h$v / 2
+  geom <- if (is.na(h$geom)) 1 else h$geom
+  if (geom == 5) {                                                                         # truncated cone: base at the neck
+    graphics::polygon(c(x1, x2, x2, x1), c(hc - h$v / 2, hc - h$h / 2, hc + h$h / 2, hc + h$v / 2),
+                      border = col, lwd = lwd)
+    if (fur) graphics::polygon(c(x1, x2, x2, x1),
+                               c(hc - h$v / 2 - h$fv, hc - h$h / 2 - h$fv, hc + h$h / 2 + h$fd, hc + h$v / 2 + h$fd),
+                               border = col, lty = 2)
+  } else if (geom %in% c(2, 4)) {                                                          # sphere / ellipsoid
+    .geom_ell((x1 + x2) / 2, hc, h$len, h$v, col = col, lwd = lwd)
+    if (fur) .geom_ell((x1 + x2) / 2, hc + (h$fd - h$fv) / 2, h$len + h$fd + h$fv, h$v + h$fd + h$fv,
+                       col = col, lty = 2)
+  } else {                                                                                 # cylinder / elliptical cylinder
+    .geom_box(x1, x2, hc - h$v / 2, hc + h$v / 2, border = col, lwd = lwd)
+    if (fur) .geom_box(x1, x2, hc - h$v / 2 - h$fv, hc + h$v / 2 + h$fd, border = col, lty = 2)
+  }
+  invisible(NULL)
+}
+
+.geom_front <- function(d, col, lwd, fur = TRUE) {
+  t <- d["torso", ]; n <- d["neck", ]; h <- d["head", ]
+  leg <- if (.geom_present(d["front_leg", ])) d["front_leg", ] else d["rear_leg", ]
+  y <- .geom_torso_y(d); yb <- y[["bottom"]]; yt <- y[["top"]]
+  if (.geom_present(leg)) {                                                                # legs under the torso sides
+    xs <- t$h / 2 - leg$v / 2
+    for (s in c(-1, 1)) .geom_box(s * xs - leg$v / 2, s * xs + leg$v / 2, 0, yb, border = col, lwd = lwd)
+  }
+  .geom_ell(0, yb + t$v / 2, t$h, t$v, col = col, lwd = lwd)
+  if (fur) .geom_ell(0, yb + t$v / 2 + (t$fd - t$fv) / 2, t$h + t$fd + t$fv, t$v + t$fd + t$fv, col = col, lty = 2)
+  if (.geom_present(n)) .geom_ell(0, yt - n$v / 2, n$h, n$v, col = col, lwd = lwd)
+  if (!.geom_present(h)) return(invisible(NULL))
+  hc <- yt - h$v / 2; fs <- h$fd + h$fv
+  geom <- if (is.na(h$geom)) 1 else h$geom
+  if (geom == 5) {                                                                         # cone: circular base + snout
+    .geom_ell(0, hc, h$v, h$v, col = col, lwd = lwd)
+    .geom_ell(0, hc, h$h, h$h, col = col, lwd = lwd)
+    if (fur) .geom_ell(0, hc + (h$fd - h$fv) / 2, h$v + fs, h$v + fs, col = col, lty = 2)
+  } else {
+    w <- if (geom == 2) h$v else h$h                                                       # sphere is round
+    .geom_ell(0, hc, w, h$v, col = col, lwd = lwd)
+    if (fur) .geom_ell(0, hc + (h$fd - h$fv) / 2, w + fs, h$v + fs, col = col, lty = 2)
+  }
+  invisible(NULL)
+}
+
+# Plot extents (m) of one shape, fur included.
+.geom_extent <- function(d) {
+  yt <- .geom_torso_y(d)[["top"]]
+  shown <- vapply(c("torso", "neck", "head"), function(p) p == "torso" || .geom_present(d[p, ]), logical(1))
+  fd <- d[c("torso", "neck", "head"), "fd"][shown]
+  len <- d["torso", "len"] + sum(d[c("neck", "head"), "len"][shown[-1]])
+  head_fur <- if (shown[["head"]] && !identical(d["head", "geom"], 5)) d["head", "fd"] + d["head", "fv"] else 0
+  c(side_min = if (.geom_present(d["tail", ])) -d["tail", "len"] else 0,
+    side_max = len + head_fur / 2,
+    front_half = (d["torso", "h"] + d["torso", "fd"] + d["torso", "fv"]) / 2,
+    top = yt + max(fd))
+}
+
+#' Plot the body geometry of an Endotherm animal
+#'
+#' Draws side and front views, in metres, of the standing animal described by
+#' the allometry of an Endotherm input list, in the style of the NicheMapper
+#' Endotherm developers' geometry plots. Solid lines are the flesh, dashed
+#' lines the outer fur surface. A second input list can be overlaid faintly in
+#' red (flesh only) for comparison, e.g. the original preset after
+#' \code{\link{override_endotherm_defaults}} changed some dimensions.
+#'
+#' @param ei An Endotherm input list, as returned by
+#'   \code{\link{get_endotherm_defaults}}. Reads
+#'   \code{ei$allometry$parts$<head|neck|torso|front_leg|rear_leg|tail>} fields
+#'   \code{diameter_vertical}, \code{diameter_horizontal}, \code{length} (cm),
+#'   \code{fur_depth_dorsal_adjusted}, \code{fur_depth_ventral_adjusted} (mm)
+#'   and \code{geometry}.
+#' @param ref Optional second Endotherm input list drawn faintly in red
+#'   (flesh only) behind \code{ei}. Default \code{NULL}.
+#' @param main Overall title. Default \code{"Endotherm body geometry"}.
+#'
+#' @return Invisibly, a list with \code{parts} (data frame of the body-part
+#'   dimensions of \code{ei} in metres: \code{v}, \code{h} = vertical and
+#'   horizontal flesh diameter, \code{len} = length, \code{fd}, \code{fv} =
+#'   dorsal and ventral fur depth, \code{geom} = geometry code; one row per
+#'   part), \code{ref_parts} (the same for \code{ref}, or \code{NULL}),
+#'   \code{shoulder_height} (m, flesh) and the plot limits \code{side_xlim},
+#'   \code{front_xlim} and \code{ylim}.
+#'
+#' @details
+#' Layout: the torso sits on the front legs, so front-leg length plus torso
+#' vertical diameter is the shoulder height (the rear legs are used for a
+#' biped with no front legs). The rear leg stands at the back end of the
+#' torso and the front leg at the front end; in the side view a leg's width
+#' is its front-back diameter (\code{diameter_horizontal}), in the front view
+#' its sideways diameter (\code{diameter_vertical}). The rear leg is drawn from
+#' the ground up to the torso, so a rear leg longer than the front leg is
+#' clipped at the torso bottom. The neck and tail run horizontally with their
+#' top level with the back; the tail is only drawn when its length and
+#' diameter are nonzero. A part with geometry code 0 (e.g. no front legs) is
+#' skipped. The tail is hidden behind the torso in the front view.
+#'
+#' The head is drawn from its Endotherm geometry code: truncated cone (5,
+#' \code{diameter_vertical} = base diameter at the neck,
+#' \code{diameter_horizontal} = snout diameter; the front view shows base and
+#' snout circles), sphere (2) or ellipsoid (4) as an ellipse in the side view,
+#' and cylinder (1), elliptical cylinder (3) or any other code as a box. Except
+#' for the cone, the front view is an ellipse of \code{diameter_horizontal}
+#' (sideways) by \code{diameter_vertical}.
+#'
+#' Fur is added dorsally and ventrally from the dorsal and ventral fur depths;
+#' on the ends and sides the mean of the two is used. Fur is drawn on the
+#' torso, neck, head and tail, not on the legs.
+#'
+#' @examples
+#' ei <- get_endotherm_defaults("Female Alaskan Moose - Winter", julnum = 12)
+#' plot_endotherm_geometry(ei)
+#'
+#' # compare with a modified animal
+#' ei2 <- override_endotherm_defaults(ei, allometry.parts.torso.length = 150)
+#' plot_endotherm_geometry(ei2, ref = ei, main = "Longer torso (red: preset)")
+#'
+#' @seealso \code{\link{get_endotherm_defaults}}, \code{\link{override_endotherm_defaults}}
+#' @export
+plot_endotherm_geometry <- function(ei, ref = NULL, main = "Endotherm body geometry") {
+  d <- .geom_dims(ei, "ei")
+  dr <- if (!is.null(ref)) .geom_dims(ref, "ref")
+
+  ext <- .geom_extent(d)
+  if (!is.null(dr)) {
+    er <- .geom_extent(dr)
+    ext <- c(side_min = min(ext[["side_min"]], er[["side_min"]]), side_max = max(ext[["side_max"]], er[["side_max"]]),
+             front_half = max(ext[["front_half"]], er[["front_half"]]), top = max(ext[["top"]], er[["top"]]))
+  }
+  pad <- 0.05 * (ext[["side_max"]] - ext[["side_min"]])
+  side_xlim <- c(ext[["side_min"]] - pad, ext[["side_max"]] + pad)
+  front_xlim <- c(-1, 1) * (ext[["front_half"]] + pad)
+  ylim <- c(0, ext[["top"]] + 2 * pad)
+  ref_col <- grDevices::adjustcolor("red", 0.5)
+
+  op <- graphics::par(mfrow = c(1, 2), mar = c(4.5, 4.5, 2, 1), oma = c(0, 0, 2, 0))
+  on.exit(graphics::par(op), add = TRUE)
+
+  graphics::plot(NA, xlim = side_xlim, ylim = ylim, asp = 1, xlab = "Length (m)", ylab = "Height (m)", main = "Side")
+  if (!is.null(dr)) .geom_side(dr, ref_col, 1, fur = FALSE)
+  .geom_side(d, "black", 1.5)
+
+  graphics::plot(NA, xlim = front_xlim, ylim = ylim, asp = 1, xlab = "Width (m)", ylab = "Height (m)", main = "Front")
+  if (!is.null(dr)) .geom_front(dr, ref_col, 1, fur = FALSE)
+  .geom_front(d, "black", 1.5)
+  graphics::legend("topright", c("flesh", "fur surface", if (!is.null(dr)) "reference (flesh)"),
+                   lty = c(1, 2, if (!is.null(dr)) 1), col = c("black", "black", if (!is.null(dr)) "red"),
+                   bty = "n", cex = 0.8)
+  graphics::mtext(main, outer = TRUE, font = 2)
+
+  invisible(list(parts = d, ref_parts = dr, shoulder_height = .geom_torso_y(d)[["top"]],
+                 side_xlim = side_xlim, front_xlim = front_xlim, ylim = ylim))
+}
+
+# --------------------------------------------------------------------------- #
 #  Internal helpers for run_endo_big_nichemap
 # --------------------------------------------------------------------------- #
 
