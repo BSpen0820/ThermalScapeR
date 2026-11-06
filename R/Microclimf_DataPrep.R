@@ -436,17 +436,23 @@ LandfireVegHght_AsNumeric <- function(rast,
                                            crop_template = NULL,
                                            no_match_value = 0) {
 
-  lv <- levels(rast)
+  # terra:: is required: terra isn't imported, so a bare levels() here resolves
+  # to base::levels() and returns NULL for a SpatRaster
+  lv <- terra::levels(rast)[[1]]
+  if (!is.data.frame(lv) || !"CLASSNAMES" %in% names(lv)) {
+    stop("rast must be categorical with a CLASSNAMES column (attach the LANDFIRE CSV with levels())")
+  }
+  val_col <- names(lv)[toupper(names(lv)) == "VALUE"][1]
+  if (is.na(val_col)) val_col <- names(lv)[1]
 
-  m <- regexpr("[0-9]+\\.?[0-9]*", lv[[1]]$CLASSNAMES)
-  numbers <- as.numeric(regmatches(lv[[1]]$CLASSNAMES, m))
-  numbers <- c(m[m == -1], numbers)
-  numbers[numbers == -1] <- no_match_value
+  # first number in each class name, e.g. "Tree Height = 18 meters" -> 18;
+  # classes without a number (water, developed, crops, ...) get no_match_value
+  m <- regexpr("[0-9]+\\.?[0-9]*", lv$CLASSNAMES)
+  height <- rep(no_match_value, nrow(lv))
+  height[m != -1] <- as.numeric(regmatches(lv$CLASSNAMES, m))
 
-  lv <- data.frame(lv)
-  lv$height <- numbers
-
-  rast <- terra::classify(rast, rcl = as.matrix(lv[, c("VALUE", "height")]))
+  rcl <- cbind(as.numeric(lv[[val_col]]), height)
+  rast <- terra::classify(rast, rcl = rcl)
 
   if (!is.null(crop_template)) {
     rast <- terra::crop(

@@ -1396,6 +1396,9 @@ write_endotherm_inputs <- function(output_dir,
 #  micro_to_csv(): column-derivation builders
 # --------------------------------------------------------------------------- #
 
+# Zenith (deg) from which SOLR is set to 0 in metout (see .mtc_build_metout)
+.mtc_horizon_zen <- 89
+
 .mtc_build_metout <- function(day_index, abv_series, zen, elev, tannul) {
   n <- nrow(day_index)
   sigma <- 5.670374e-8
@@ -1405,6 +1408,9 @@ write_endotherm_inputs <- function(output_dir,
   vloc  <- abv_series$windspeed
   # microclimf's Rdirdown is the beam on a surface facing the sun; the exe's SOLR is global horizontal
   solr  <- abv_series$Rdirdown * pmax(cos(zen * pi / 180), 0) + abv_series$Rdifdown
+  # Sun within 1 degree of the horizon: the exe hangs or returns erratic MET (0 to >300 W for tiny ZEN
+  # changes) when ZEN is 89-90 and SOLR > 0 (twilight diffuse light), so that hour gets no solar.
+  solr[zen >= .mtc_horizon_zen] <- 0
   tskyc <- (abv_series$Rlwdown / sigma)^0.25 - 273.15
 
   elev_col <- c(elev, rep(0, n - 1L))
