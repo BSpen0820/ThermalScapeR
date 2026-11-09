@@ -24,7 +24,10 @@ Bryan Spencer. Its body-part dimensions (head, neck, torso and leg
 diameters and lengths) and shoulder height (163.3 cm) are geometric means
 of photo measurements of Alaskan moose (Bryan Spencer, MooseGeom), and its
 torso density is 950 kg m^-3 on the advice of the NicheMapper developers
-(other parts keep 1033.6). Its basal metabolic rate (436.6 W = 394 kJ kg^-0.75 d^-1,
+(other parts keep 1033.6). Its winter fur depths are re-measured values
+(Bryan Spencer; mm, dorsal/ventral, leg outside/inside): head 11.8/24.7,
+neck 35.2/40.8, torso 44.7/27.5, front leg 12.4/11.2, rear leg 14.3/8.5;
+the fur-file head&neck and leg depths are the means of those parts. Its basal metabolic rate (436.6 W = 394 kJ kg^-0.75 d^-1,
 the winter Nov-Mar mean for fasted, lying Alaskan moose) is from Regelin,
 W. L., Schwartz, C. C. & Franzmann, A. W. (1985) Seasonal energy
 metabolism of adult moose. J. Wildl. Manage. 49: 388-393. Its core

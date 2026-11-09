@@ -63,7 +63,7 @@ test_that("the Alaskan moose preset resolves to the AlaskaEndoAlom values and wr
   expect_identical(d$animal$body_mass, 438)
   expect_identical(d$animal$metabolic_rate, 436.6)
   expect_identical(d$fur$parts$torso$hair_length_dorsal, 96.65)
-  expect_identical(d$fur$fur_depth_dorsal, 64.35)
+  expect_identical(d$fur$fur_depth_dorsal, 44.7)
   expect_identical(d$allometry$parts$torso$length, 132.4)
   expect_identical(d$allometry$parts$torso$density, 950)
   expect_identical(d$allometry$absolute_measurement_cm, 163.3)
