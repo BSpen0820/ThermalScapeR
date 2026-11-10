@@ -574,13 +574,24 @@ test_that("micro_to_csv() stops on more than 52 unique requested days", {
   )
 })
 
-test_that(".mtc_build_metout sets SOLR to 0 with the sun within 1 degree of the horizon", {
+test_that(".mtc_build_metout sets SOLR to 0 with the sun within 5 degrees of the horizon", {
   day_index  <- data.frame(doy = rep(199L, 4), hour_offset = 20:23)
   abv_series <- list(Tz = rep(20, 4), relhum = rep(50, 4), windspeed = rep(0.5, 4),
                      Rdirdown = c(100, 50, 20, 0), Rdifdown = c(30, 20, 11, 5), Rlwdown = rep(350, 4))
-  zen <- c(80, 88.99, 89, 89.999)
+  zen <- c(80, 84.99, 85, 89.999)
   out <- .mtc_build_metout(day_index, abv_series, zen, elev = 0, tannul = 10)
   expect_equal(out$SOLR[1:2], c(100, 50) * cos(zen[1:2] * pi / 180) + c(30, 20))
   expect_equal(out$SOLR[3:4], c(0, 0))
-  expect_equal(out$ZEN, zen)
+  expect_equal(.mtc_horizon_zen, 85)
+  expect_equal(out$ZEN, c(80, 84.99, 85, 89.9))   # capped at .mtc_night_zen
+})
+
+test_that(".mtc_build_metout writes night ZEN as 89.9 (exe keeps stale solar at ZEN >= 90), day ZEN unchanged", {
+  day_index  <- data.frame(doy = rep(199L, 3), hour_offset = 0:2)
+  abv_series <- list(Tz = rep(10, 3), relhum = rep(50, 3), windspeed = rep(1, 3),
+                     Rdirdown = c(0, 100, 0), Rdifdown = c(5, 10, 0), Rlwdown = rep(300, 3))
+  out <- .mtc_build_metout(day_index, abv_series, zen = c(90, 60, 95), elev = 0, tannul = 5)
+  expect_equal(.mtc_night_zen, 89.9)
+  expect_equal(out$ZEN, c(89.9, 60, 89.9))
+  expect_equal(out$SOLR, c(0, 100 * cos(pi / 3) + 10, 0))
 })

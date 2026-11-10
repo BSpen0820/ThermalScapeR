@@ -1397,7 +1397,9 @@ write_endotherm_inputs <- function(output_dir,
 # --------------------------------------------------------------------------- #
 
 # Zenith (deg) from which SOLR is set to 0 in metout (see .mtc_build_metout)
-.mtc_horizon_zen <- 89
+.mtc_horizon_zen <- 85
+# Highest zenith (deg) written to the exe's metout ZEN column (see .mtc_build_metout)
+.mtc_night_zen <- 89.9
 
 .mtc_build_metout <- function(day_index, abv_series, zen, elev, tannul) {
   n <- nrow(day_index)
@@ -1408,9 +1410,14 @@ write_endotherm_inputs <- function(output_dir,
   vloc  <- abv_series$windspeed
   # microclimf's Rdirdown is the beam on a surface facing the sun; the exe's SOLR is global horizontal
   solr  <- abv_series$Rdirdown * pmax(cos(zen * pi / 180), 0) + abv_series$Rdifdown
-  # Sun within 1 degree of the horizon: the exe hangs or returns erratic MET (0 to >300 W for tiny ZEN
-  # changes) when ZEN is 89-90 and SOLR > 0 (twilight diffuse light), so that hour gets no solar.
+  # Sun within 5 degrees of the horizon gets no solar. The exe treats SOLR as beam: absorbed solar per W/m2
+  # grows ~1/cos(ZEN) (x8 at ZEN 83-85, x38 at 87-89 vs x1.3 at ZEN < 60) although twilight light is diffuse,
+  # so a few W/m2 at sunset gave a large heat load (single-hour MET drops); at ZEN 89-90 with SOLR > 0 it
+  # also hangs or returns erratic MET.
   solr[zen >= .mtc_horizon_zen] <- 0
+  # The exe skips its solar calculation at ZEN >= 90 and keeps a stale absorbed solar (~0.38 x the last
+  # sunlit hour's) for every night hour; at ZEN 89.9 with SOLR = 0 it recomputes ~0. SOLR above uses the true zen.
+  zen_exe <- pmin(zen, .mtc_night_zen)
   tskyc <- (abv_series$Rlwdown / sigma)^0.25 - 273.15
 
   elev_col <- c(elev, rep(0, n - 1L))
@@ -1421,7 +1428,7 @@ write_endotherm_inputs <- function(output_dir,
     TALOC  = taloc, TAREF = taloc,
     RHLOC  = rhloc, RH    = rhloc,
     VLOC   = vloc,  VREF  = vloc,
-    ZEN    = zen,
+    ZEN    = zen_exe,
     SOLR   = solr,
     TSKYC  = tskyc,
     ELEV   = elev_col,
@@ -1612,7 +1619,8 @@ micro_to_csv_clamp_defaults <- function() {
 #' there is no separate reference-height (1.2 m) series to source them from.
 #' \code{ZEN} is computed via \code{solaR} from the cell's reprojected
 #' lon/lat and local solar time, clamped to a maximum of 90 (below-horizon
-#' convention). \code{SOLR = Rdirdown * cos(ZEN) + Rdifdown} (global horizontal: microclimf's
+#' convention), then capped at 89.9 in the written \code{metout} (the exe keeps a
+#' stale absorbed solar at \code{ZEN >= 90}; \code{SOLR} is set to 0 from ZEN 85, where the exe over-weights diffuse twilight). \code{SOLR = Rdirdown * cos(ZEN) + Rdifdown} (global horizontal: microclimf's
 #' \code{Rdirdown} is the beam perpendicular to the sun). \code{TSKYC} is derived
 #' from \code{Rlwdown} via Stefan-Boltzmann inversion
 #' (\code{(Rlwdown/sigma)^0.25 - 273.15}) -- this is not an approximation:
