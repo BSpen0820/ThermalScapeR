@@ -2116,8 +2116,13 @@ download_soil <- function(dtm,
   terra::writeRaster(soildata, file.path(out_dir, coarse_name), overwrite = TRUE)
   cat(sprintf("  Saved: %s\n", coarse_name))
 
-  # Project land cover to WGS84 for soildata_downscale
-  lc_wgs84 <- terra::project(landcover, "epsg:4326")
+  # Project land cover to WGS84 for soildata_downscale. method = "near" is
+  # essential: landcover is categorical, and the default (bilinear) blends class
+  # codes into ~10^5-10^6 unique values. soildata_downscale()'s internal
+  # .sharpen() loops over every unique landcover value with full-raster passes,
+  # so bilinear turns ~50 iterations into ~10^6 (hours/days instead of minutes)
+  # and also breaks the water-class mask.
+  lc_wgs84 <- terra::project(landcover, "epsg:4326", method = "near")
 
   # Downscale soil data
   cat("Downscaling soil data...\n")
