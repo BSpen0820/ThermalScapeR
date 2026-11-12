@@ -32,3 +32,12 @@ test_that("packaged RDS is sampled at the nearest cell, wind unscaled", {
   expect_equal(m$Ten_Meter_Elevation_Wind_Speed_meterPerSecond[1], 1)
   expect_equal(m$Surface_Level_Barometric_Pressure_pascal[1], 1e5)
 })
+
+test_that("a missing first or last hour is filled from neighbours", {
+  cd <- .test_climdata(t0, 48); cd$temp[1] <- NA; cd$temp[48] <- NA
+  m <- .lake_meteo(cd, -151, 60.5, t0, t0 + 47 * 3600)
+  expect_equal(m$Air_Temperature_celsius[c(1, 48)], c(10, 10))
+  cd <- .test_climdata(t0, 48); cd$temp[10] <- NA
+  m <- .lake_meteo(cd, -151, 60.5, t0 + 9 * 3600, t0 + 20 * 3600)
+  expect_equal(m$Air_Temperature_celsius[1], 10)
+})

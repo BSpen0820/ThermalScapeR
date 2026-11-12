@@ -13,3 +13,13 @@ test_that("window is trimmed to [start, stop] and empty input stops", {
   expect_equal(nrow(.ensemble_lake(mo, tm[2], tm[3])), 2L)
   expect_error(.ensemble_lake(list(), tm[1], tm[3]), "all models failed")
 })
+
+test_that("a model with missing hours or long NA runs is dropped with a warning", {
+  ok <- data.frame(datetime = tm, temp = 1, ice_height = 0)
+  expect_identical(.check_model_output(ok, tm[1], tm[3], "GLM", "A"), ok)
+  expect_warning(r <- .check_model_output(ok[1:2, ], tm[1], tm[3], "GLM", "A"), "GLM.*A")
+  expect_null(r)
+  bad <- ok; bad$temp[2] <- NA
+  expect_warning(r <- .check_model_output(bad, tm[1], tm[3], "FLake", "A"), "FLake")
+  expect_null(r)
+})

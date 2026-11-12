@@ -21,3 +21,8 @@ test_that("lon/lat lakes and ref_depth >= max_depth are rejected", {
   expect_error(generate_lake_bathymetry(sf::st_transform(.test_square_lake(), 4326)), "projected")
   expect_error(generate_lake_bathymetry(.test_square_lake(), ref_depth = 5), "ref_depth")
 })
+
+test_that("projected CRS in feet is rejected", {
+  ft <- sf::st_transform(.test_square_lake(), 2232)
+  expect_error(generate_lake_bathymetry(ft), "metre")
+})

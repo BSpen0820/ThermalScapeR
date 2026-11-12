@@ -57,3 +57,14 @@ test_that("a lake where every model fails stops", {
                                   withr::local_tempdir(), Kw = 1, models = "FLake"),
                "all models failed")
 })
+
+test_that("fewer than two successful models is warned and logged", {
+  local_mocked_bindings(.ler_run_lake = function(lake, meteo, start, stop, models, ...)
+    fake_ler(lake, meteo, start, stop, "FLake"))
+  s <- setup_run()
+  expect_warning(log <- run_lake_watertemp(s$p, s$cd, as.Date(c("2020-05-01", "2020-05-01")), s$lc, 11,
+                                           withr::local_tempdir(), Kw = 1, models = c("FLake", "GLM"),
+                                           spinup_clim = s$cd), "1 of 2")
+  expect_equal(log$n_models, 1L)
+  expect_equal(log$models_failed, "GLM")
+})

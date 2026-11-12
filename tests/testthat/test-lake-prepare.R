@@ -38,3 +38,9 @@ test_that("lon/lat bathymetry is rejected", {
   b <- terra::rast(nrows = 2, ncols = 2, vals = 1)
   expect_error(prepare_lakes(b, b), "projected")
 })
+
+test_that("bathymetry in a feet CRS is rejected", {
+  b <- terra::rast(nrows = 2, ncols = 2, xmin = 0, xmax = 2, ymin = 0, ymax = 2,
+                   crs = "EPSG:2232", vals = 1)
+  expect_error(prepare_lakes(b, b), "metre")
+})

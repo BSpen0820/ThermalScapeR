@@ -67,7 +67,7 @@ resolve climate files.}
 }
 \value{
 Invisibly, a log data.frame with columns \code{period_label},
-\code{lake_id}, \code{models_ok}, \code{models_failed} (comma-joined),
+\code{lake_id}, \code{n_models}, \code{models_ok}, \code{models_failed} (comma-joined),
 \code{n_cells}, and \code{nc_file}. Writes
 \code{{study_area}_WaterTemp_{period_label}.nc} (variables
 \code{water_temp} in degC and \code{ice_frac}) and
@@ -111,7 +111,14 @@ hours without a diurnal cycle), so it is not in the default \code{models}.
 \strong{Grid.} Every \code{landcover} cell whose class is in
 \code{water_classes} takes the series of the lake it overlaps or touches,
 else the nearest lake within \code{max_match_dist} metres; other cells
-are \code{NA}.
+are \code{NA}. The NetCDF is cropped to the bounding box of those cells
+(same resolution and alignment as \code{landcover}) and compressed.
+
+\strong{Model checks.} A model whose output misses hours or has NA
+temperatures within the period is dropped with a warning. If fewer than
+two of the requested models succeed for a lake, a warning says that its
+\code{water_temp} is not an ensemble mean; \code{n_models} in the log
+records how many models contributed.
 
 \strong{Known limitations.} Ponds shallower than their
 \code{depth_floor} (see \code{\link{prepare_lakes}}) carry extra thermal

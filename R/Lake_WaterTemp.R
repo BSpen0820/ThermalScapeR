@@ -5,6 +5,12 @@
 .stop_if_longlat <- function(x, what) {
   ll <- if (inherits(x, "SpatRaster")) terra::is.lonlat(x) else isTRUE(sf::st_is_longlat(x))
   if (ll) stop(sprintf("%s must be in a projected CRS with metre units, not longitude/latitude", what))
+  metre <- if (inherits(x, "SpatRaster")) {
+    isTRUE(all.equal(terra::linearUnits(x), 1))
+  } else {
+    identical(sf::st_crs(x)$units_gdal, "metre")
+  }
+  if (!metre) stop(sprintf("%s must be in a projected CRS with metre units (e.g. UTM), not feet", what))
   invisible(TRUE)
 }
 
@@ -282,17 +288,34 @@ prepare_lakes <- function(bathy,
     stop(sprintf("climate input does not cover %s to %s (%d hour(s) missing)",
                  .fmt_hour(min(gone)), .fmt_hour(max(gone)), length(gone)))
   }
-  df <- df[ix, , drop = FALSE]
+  # Interpolate on a window widened by max_gap hours (where the source has
+  # data) so a missing hour at the window edge can use its neighbours.
+  lo   <- max(start - max_gap * 3600, min(df$datetime))
+  hi   <- min(stop + max_gap * 3600, max(df$datetime))
+  wide <- seq(lo, hi, by = 3600)
+  df   <- df[match(as.numeric(wide), as.numeric(df$datetime)), , drop = FALSE]
+  df$datetime <- wide
+  keep <- wide >= start & wide <= stop
+
+  fill <- function(x) {
+    if (sum(!is.na(x)) < 2) return(x)
+    r    <- rle(is.na(x))
+    long <- rep(r$values & r$lengths > max_gap, r$lengths)
+    y    <- zoo::na.approx(x, rule = 2, na.rm = FALSE)
+    y[long] <- NA
+    y
+  }
 
   for (v in vars) {
-    x <- zoo::na.approx(df[[v]], maxgap = max_gap, na.rm = FALSE)
-    if (anyNA(x)) {
-      bad <- df$datetime[is.na(x)]
+    x <- fill(df[[v]])
+    if (anyNA(x[keep])) {
+      bad <- df$datetime[keep][is.na(x[keep])]
       stop(sprintf("climate variable '%s' has a gap longer than %d hours starting %s",
                    v, max_gap, .fmt_hour(min(bad))))
     }
     df[[v]] <- x
   }
+  df <- df[keep, , drop = FALSE]
 
   df$windspeed <- df$windspeed * wind_fac
   df$pres      <- df$pres * 1000
@@ -347,6 +370,15 @@ prepare_lakes <- function(bathy,
     if (!identical(as.numeric(e$datetime), as.numeric(tm)))
       stop("all lakes must share the same hourly time axis")
 
+  # Water is a small fraction of the domain: crop to the water cells'
+  # bounding box (grid alignment unchanged) so the dense hourly matrices and
+  # the file stay small.
+  if (all(is.na(terra::values(lake_idx, mat = FALSE))))
+    stop("no landcover water cells matched a modeled lake; nothing to write")
+  # Pad by one cell (within the grid) so a single water cell still yields a
+  # file whose coordinates define the resolution.
+  lake_idx <- terra::crop(terra::extend(terra::trim(lake_idx), 1), lake_idx)
+
   v  <- terra::values(lake_idx, mat = FALSE)
   mt <- do.call(rbind, lapply(ens, function(e) e$water_temp))
   mi <- do.call(rbind, lapply(ens, function(e) e$ice_frac))
@@ -371,6 +403,7 @@ prepare_lakes <- function(bathy,
                   longname = c("Ensemble-mean near-surface water temperature",
                                "Fraction of ensemble models with ice cover"),
                   unit     = c("degC", "1"),
+                  compression = 4,
                   overwrite = TRUE)
   invisible(out_path)
 }
@@ -585,6 +618,24 @@ prepare_lakes <- function(bathy,
   res
 }
 
+# Returns `out` if it covers every hour of [start, stop] with no NA
+# temperature, otherwise warns and returns NULL (the model is dropped).
+.check_model_output <- function(out, start, stop, model, lake_id) {
+  tg <- seq(start, stop, by = 3600)
+  ix <- match(as.numeric(tg), as.numeric(out$datetime))
+  problem <- if (anyNA(ix)) {
+    sprintf("%d hour(s) missing", sum(is.na(ix)))
+  } else if (anyNA(out$temp[ix])) {
+    sprintf("%d hour(s) with NA temperature", sum(is.na(out$temp[ix])))
+  } else {
+    NULL
+  }
+  if (is.null(problem)) return(out)
+  warning(sprintf("model %s dropped for lake %s: %s between %s and %s",
+                  model, lake_id, problem, .fmt_hour(start), .fmt_hour(stop)))
+  NULL
+}
+
 .resolve_lake_clim <- function(x, period_label, study_area) {
   if (is.data.frame(x)) return(x)
   if (!is.character(x)) stop("climate input must be a data.frame, an RDS file path, or a directory")
@@ -635,7 +686,14 @@ prepare_lakes <- function(bathy,
 #' \strong{Grid.} Every \code{landcover} cell whose class is in
 #' \code{water_classes} takes the series of the lake it overlaps or touches,
 #' else the nearest lake within \code{max_match_dist} metres; other cells
-#' are \code{NA}.
+#' are \code{NA}. The NetCDF is cropped to the bounding box of those cells
+#' (same resolution and alignment as \code{landcover}) and compressed.
+#'
+#' \strong{Model checks.} A model whose output misses hours or has NA
+#' temperatures within the period is dropped with a warning. If fewer than
+#' two of the requested models succeed for a lake, a warning says that its
+#' \code{water_temp} is not an ensemble mean; \code{n_models} in the log
+#' records how many models contributed.
 #'
 #' \strong{Known limitations.} Ponds shallower than their
 #' \code{depth_floor} (see \code{\link{prepare_lakes}}) carry extra thermal
@@ -672,7 +730,7 @@ prepare_lakes <- function(bathy,
 #'   (\code{out_dir/LER_runs}). Default \code{FALSE}.
 #'
 #' @return Invisibly, a log data.frame with columns \code{period_label},
-#'   \code{lake_id}, \code{models_ok}, \code{models_failed} (comma-joined),
+#'   \code{lake_id}, \code{n_models}, \code{models_ok}, \code{models_failed} (comma-joined),
 #'   \code{n_cells}, and \code{nc_file}. Writes
 #'   \code{{study_area}_WaterTemp_{period_label}.nc} (variables
 #'   \code{water_temp} in degC and \code{ice_frac}) and
@@ -767,13 +825,19 @@ run_lake_watertemp <- function(lakes,
 
       mo <- .ler_run_lake(lake, met, run_start, pstop, models, Kw = kw[i],
                           init_temp = init_temp, ice_init = ice_init, run_dir = run_dir)
+      mo <- Filter(Negate(is.null), Map(function(o, m) .check_model_output(o, pstart, pstop, m, lake$lake_id),
+                                        mo, names(mo)))
       if (length(mo) == 0)
         stop(sprintf("all models failed for lake %s (period %s)", lake$lake_id, label))
+      if (length(models) >= 2 && length(mo) < 2)
+        warning(sprintf("lake %s (period %s): only %d of %d models succeeded; water_temp is not an ensemble mean",
+                        lake$lake_id, label, length(mo), length(models)))
       ens[[i]] <- .ensemble_lake(mo, pstart, pstop)
 
       log[[length(log) + 1]] <- data.frame(
         period_label  = label,
         lake_id       = lake$lake_id,
+        n_models      = length(mo),
         models_ok     = paste(names(mo), collapse = ","),
         models_failed = paste(setdiff(models, names(mo)), collapse = ","),
         n_cells       = n_cells[i],

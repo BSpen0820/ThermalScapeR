@@ -39,3 +39,15 @@ test_that("NetCDF round-trips values and time", {
   expect_equal(as.numeric(terra::time(wt)), as.numeric(tm))
   expect_equal(as.numeric(terra::rast(f, subds = "ice_frac")[1]), c(1, 0.5, 0))
 })
+
+test_that("NetCDF is cropped to water cells on the same grid alignment", {
+  lc <- grid30(); idx <- lc * NA
+  cell <- terra::cellFromXY(lc, cbind(500300, 6700300)); idx[cell] <- 1L
+  tm <- as.POSIXct("2020-05-01", tz = "UTC") + 3600 * 0:1
+  f <- withr::local_tempfile(fileext = ".nc")
+  .write_watertemp_nc(idx, list(data.frame(datetime = tm, water_temp = c(5, 6), ice_frac = 0)), f)
+  wt <- terra::rast(f, subds = "water_temp")
+  expect_equal(terra::ncell(wt), 9L)
+  expect_equal(terra::res(wt), c(30, 30))
+  expect_equal(as.numeric(unlist(terra::extract(wt, cbind(500300, 6700300)))), c(5, 6))
+})
