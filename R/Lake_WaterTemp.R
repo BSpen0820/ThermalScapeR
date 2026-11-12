@@ -236,3 +236,71 @@ prepare_lakes <- function(bathy,
   out$hypsograph <- lapply(props, `[[`, "hypsograph")
   invisible(out)
 }
+
+.ler_meteo_cols <- c(
+  windspeed = "Ten_Meter_Elevation_Wind_Speed_meterPerSecond",
+  temp      = "Air_Temperature_celsius",
+  relhum    = "Relative_Humidity_percent",
+  swdown    = "Shortwave_Radiation_Downwelling_wattPerMeterSquared",
+  lwdown    = "Longwave_Radiation_Downwelling_wattPerMeterSquared",
+  pres      = "Surface_Level_Barometric_Pressure_pascal",
+  precip    = "Precipitation_millimeterPerDay"
+)
+
+.fmt_hour <- function(x) format(x, "%Y-%m-%d %H:%M", tz = "UTC")
+
+.lake_meteo <- function(clim, lon, lat, start, stop, max_gap = 6) {
+  vars <- names(.ler_meteo_cols)
+
+  if (is.data.frame(clim)) {
+    miss <- setdiff(c("obs_time", vars), names(clim))
+    if (length(miss) > 0)
+      stop(sprintf("climate data.frame is missing column(s): %s", paste(miss, collapse = ", ")))
+    df <- data.frame(datetime = as.POSIXct(clim$obs_time, tz = "UTC"), clim[vars])
+    wind_fac <- log(10 / 0.01) / log(2 / 0.01)
+  } else {
+    cl  <- if (is.character(clim)) readr::read_rds(clim) else clim
+    get <- function(v) {
+      if (is.null(cl[[v]])) stop(sprintf("packaged climate is missing '%s'", v))
+      if (inherits(cl[[v]], "PackedSpatRaster")) terra::unwrap(cl[[v]]) else cl[[v]]
+    }
+    r1  <- get("temp")
+    pt  <- terra::project(terra::vect(cbind(lon, lat), crs = "EPSG:4326"), terra::crs(r1))
+    cell <- terra::cellFromXY(r1, terra::crds(pt))
+    if (is.na(cell))
+      stop(sprintf("lake centroid (%.4f, %.4f) lies outside the packaged climate extent", lon, lat))
+    df <- data.frame(datetime = as.POSIXct(terra::time(r1), tz = "UTC"))
+    for (v in vars) df[[v]] <- as.numeric(unlist(get(v)[cell]))
+    wind_fac <- 1
+  }
+
+  df <- df[!duplicated(df$datetime), , drop = FALSE]
+  tg <- seq(start, stop, by = 3600)
+  ix <- match(as.numeric(tg), as.numeric(df$datetime))
+  if (anyNA(ix)) {
+    gone <- tg[is.na(ix)]
+    stop(sprintf("climate input does not cover %s to %s (%d hour(s) missing)",
+                 .fmt_hour(min(gone)), .fmt_hour(max(gone)), length(gone)))
+  }
+  df <- df[ix, , drop = FALSE]
+
+  for (v in vars) {
+    x <- zoo::na.approx(df[[v]], maxgap = max_gap, na.rm = FALSE)
+    if (anyNA(x)) {
+      bad <- df$datetime[is.na(x)]
+      stop(sprintf("climate variable '%s' has a gap longer than %d hours starting %s",
+                   v, max_gap, .fmt_hour(min(bad))))
+    }
+    df[[v]] <- x
+  }
+
+  df$windspeed <- df$windspeed * wind_fac
+  df$pres      <- df$pres * 1000
+  df$precip    <- df$precip * 24
+
+  out <- data.frame(datetime = tg)
+  for (v in vars) out[[.ler_meteo_cols[[v]]]] <- df[[v]]
+  out <- out[, c("datetime", unname(.ler_meteo_cols))]
+  rownames(out) <- NULL
+  out
+}
