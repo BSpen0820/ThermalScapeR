@@ -27,3 +27,11 @@
   saveRDS(cl, path)
   invisible(path)
 }
+
+# East-facing plane z = slope * (x - xmin): constant tan(slope angle) = slope.
+.test_plane_dem <- function(slope = 0.1, crs = "EPSG:32605", xmin = 499700, xmax = 502500,
+                            ymin = 6699700, ymax = 6700500, res = 10) {
+  r <- terra::rast(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, res = res, crs = crs)
+  terra::values(r) <- slope * (terra::xFromCell(r, seq_len(terra::ncell(r))) - xmin)
+  r
+}

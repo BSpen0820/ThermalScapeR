@@ -48,8 +48,39 @@
   list(zmax = est$zmax, source = "hollister2011")
 }
 
+# Hollister et al. (2011) / lakemorpho::lakeMaxDepth(): Zmax from the
+# slope quantile of the land within a ring of width max(Dmax, 100 m) around
+# the lake (lakemorpho::lakeSurroundTopo()), all modeled lakes masked out.
 .hollister_zmax <- function(geom, lakes_all, dem, dmax, slope_quantile, correct_factor, lake_id) {
-  stop("Hollister et al. (2011) estimate not yet implemented")
+  if (!inherits(dem, "SpatRaster")) dem <- terra::rast(dem)
+  dem   <- dem[[1]]
+  ring  <- sf::st_difference(sf::st_buffer(sf::st_union(geom), max(dmax, 100)),
+                             sf::st_union(sf::st_geometry(lakes_all)))
+  ringv <- terra::vect(ring)
+  pad   <- 3 * max(terra::res(dem))
+
+  if (!terra::same.crs(dem, ringv)) {
+    dem <- terra::crop(dem, terra::ext(terra::project(ringv, terra::crs(dem))) + pad)
+    dem <- terra::project(dem, terra::crs(ringv), method = "bilinear")
+    pad <- 3 * max(terra::res(dem))
+  }
+  dem <- terra::crop(dem, terra::ext(ringv) + pad)
+
+  slp <- terra::terrain(dem, "slope", unit = "radians")
+  v   <- terra::values(terra::mask(slp, ringv), mat = FALSE)
+  v   <- v[!is.na(v)]
+  if (length(v) == 0)
+    stop(sprintf("lake %s: dem has no values in the surrounding %.0f m buffer", lake_id, max(dmax, 100)))
+
+  sq <- unname(stats::quantile(v, slope_quantile))
+  if (sq == 0) sq <- mean(v)
+  if (!is.finite(sq) || sq <= 0)
+    stop(sprintf("lake %s: surrounding terrain has zero slope; supply a measured max_depth", lake_id))
+  if (sq < 0.01)
+    warning(sprintf(paste0("lake %s: surrounding slope %.4f rad (< 0.01) is too flat for a reliable ",
+                           "topographic depth estimate; supply a measured max_depth"), lake_id, sq))
+
+  list(zmax = correct_factor * tan(sq) * dmax, slope = sq)
 }
 
 #' Generate Lake Bathymetry from Lake Polygons
@@ -69,7 +100,20 @@
 #' a non-\code{NA} \code{max_depth} column in \code{lakes} (e.g. ADF&G or
 #' USFWS measured depths); the \code{max_depth} argument; otherwise the
 #' Hollister et al. (2011) estimate from \code{dem}. The source used for each
-#' lake is returned in \code{attr(x, "zmax")}. Measured values are strongly
+#' lake is returned in \code{attr(x, "zmax")}.
+#'
+#' The Hollister et al. (2011) estimate, as implemented in
+#' \code{lakemorpho::lakeMaxDepth()}, is
+#' \eqn{Z_{max} = c \tan(\theta_q) D_{max}}, where \eqn{\theta_q} is the
+#' \code{slope_quantile} (default median) of terrain slope within a ring of
+#' width \eqn{\max(D_{max}, 100)} m around the lake (the
+#' \code{lakemorpho::lakeSurroundTopo()} buffer), with all lakes in
+#' \code{lakes} masked out, and \eqn{c} is \code{correct_factor}. The DEM is
+#' reprojected (bilinear) to the lakes' CRS if needed. lakemorpho multiplies
+#' the slope in radians; \eqn{\tan} is used here (the two differ by < 1\%
+#' below 10 degrees). If the slope quantile is 0 the mean slope is used, as
+#' in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g. muskeg)
+#' triggers a warning, and zero slope is an error. Measured values are strongly
 #' preferred: topographic depth models explain only about 36--50\% of the
 #' variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
 #' Heathcote et al. 2015).

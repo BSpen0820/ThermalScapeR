@@ -59,3 +59,37 @@ test_that("shoreline method reproduces the previous rule", {
   expect_equal(terra::extract(b, cbind(500005.5, 6700100))[1, 1], 1, tolerance = 0.15)
   expect_equal(attr(b, "zmax")$zmax, 4.572)
 })
+
+test_that("Hollister estimate = tan(median buffer slope) * Dmax", {
+  lk <- .test_square_lake(200)
+  b <- generate_lake_bathymetry(lk, dem = .test_plane_dem(0.1))
+  z <- attr(b, "zmax")
+  expect_equal(z$zmax_source, "hollister2011")
+  dmax <- max(terra::values(.lake_dist(sf::st_geometry(lk), 1)$d, mat = FALSE), na.rm = TRUE)
+  expect_equal(z$zmax, 0.1 * dmax, tolerance = 0.02)
+  b2 <- generate_lake_bathymetry(lk, dem = .test_plane_dem(0.1), correct_factor = 2)
+  expect_equal(attr(b2, "zmax")$zmax, 2 * z$zmax, tolerance = 1e-6)
+})
+
+test_that("DEM in another CRS gives the same estimate", {
+  lk <- .test_square_lake(200)
+  d1 <- attr(generate_lake_bathymetry(lk, dem = .test_plane_dem(0.1)), "zmax")$zmax
+  d2 <- attr(generate_lake_bathymetry(lk, dem = terra::project(.test_plane_dem(0.1), "EPSG:3338")), "zmax")$zmax
+  expect_equal(d2, d1, tolerance = 0.02)
+})
+
+test_that("rings exclude neighbouring lakes' water", {
+  dem <- .test_plane_dem(0.1)
+  dem[terra::cellFromXY(dem, cbind(500250, 6700100))] <- 1e4
+  lk <- rbind(.test_square_lake(200, id = "A"), .test_square_lake(100, x0 = 500220, id = "B"))
+  z <- attr(generate_lake_bathymetry(lk, dem = dem), "zmax")
+  expect_equal(z$zmax[1], attr(generate_lake_bathymetry(lk[1, ], dem = .test_plane_dem(0.1)), "zmax")$zmax,
+               tolerance = 0.02)
+})
+
+test_that("flat terrain warns, never NaN, and all-zero slope stops naming the lake", {
+  lk <- .test_square_lake(200)
+  expect_warning(b <- generate_lake_bathymetry(lk, dem = .test_plane_dem(0.005)), "A")
+  expect_false(any(is.nan(terra::values(b))))
+  expect_error(suppressWarnings(generate_lake_bathymetry(lk, dem = .test_plane_dem(0))), "A")
+})

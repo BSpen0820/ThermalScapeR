@@ -68,7 +68,20 @@ units.
 a non-\code{NA} \code{max_depth} column in \code{lakes} (e.g. ADF&G or
 USFWS measured depths); the \code{max_depth} argument; otherwise the
 Hollister et al. (2011) estimate from \code{dem}. The source used for each
-lake is returned in \code{attr(x, "zmax")}. Measured values are strongly
+lake is returned in \code{attr(x, "zmax")}.
+
+The Hollister et al. (2011) estimate, as implemented in
+\code{lakemorpho::lakeMaxDepth()}, is
+\eqn{Z_{max} = c \tan(\theta_q) D_{max}}, where \eqn{\theta_q} is the
+\code{slope_quantile} (default median) of terrain slope within a ring of
+width \eqn{\max(D_{max}, 100)} m around the lake (the
+\code{lakemorpho::lakeSurroundTopo()} buffer), with all lakes in
+\code{lakes} masked out, and \eqn{c} is \code{correct_factor}. The DEM is
+reprojected (bilinear) to the lakes' CRS if needed. lakemorpho multiplies
+the slope in radians; \eqn{\tan} is used here (the two differ by < 1\\%
+below 10 degrees). If the slope quantile is 0 the mean slope is used, as
+in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g. muskeg)
+triggers a warning, and zero slope is an error. Measured values are strongly
 preferred: topographic depth models explain only about 36--50\\% of the
 variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
 Heathcote et al. 2015).
