@@ -2,61 +2,111 @@
 % Please edit documentation in R/Lake_WaterTemp.R
 \name{generate_lake_bathymetry}
 \alias{generate_lake_bathymetry}
-\title{Generate Synthetic Lake Bathymetry from Lake Polygons}
+\title{Generate Lake Bathymetry from Lake Polygons}
 \usage{
 generate_lake_bathymetry(
   lakes,
+  dem = NULL,
+  method = c("cone", "powerlaw", "tin", "shoreline", "all"),
   res = 1,
+  max_depth = NULL,
+  alpha = 0.6,
+  slope_quantile = 0.5,
+  correct_factor = 1,
   ref_dist = 5,
   ref_depth = 1,
-  max_depth = 4.572,
   out_file = NULL
 )
 }
 \arguments{
 \item{lakes}{An \code{sf} polygon object in a projected (metre) CRS, one
-row per lake.}
+row per lake. Optional per-lake columns: \code{lake_id}, \code{max_depth}
+(and \code{ref_dist}, \code{ref_depth} for \code{"shoreline"}).}
 
-\item{res}{Numeric. Output resolution in metres. Default 1. Must be fine
-enough to resolve \code{ref_dist}.}
+\item{dem}{Optional \code{SpatRaster} of elevation (m), used only for the
+Hollister et al. (2011) maximum-depth estimate.}
 
-\item{ref_dist}{Numeric. Reference distance from shore in metres.
-Default 5.}
+\item{method}{Bathymetry method; see Details. Default \code{"cone"}.}
 
-\item{ref_depth}{Numeric. Water depth in metres at \code{ref_dist}.
-Default 1. Must be less than \code{max_depth}.}
+\item{res}{Numeric. Output resolution in metres. Default 1.}
 
-\item{max_depth}{Numeric. Maximum (asymptotic) depth in metres. Default
-4.572 (15 ft).}
+\item{max_depth}{Optional maximum depth (m) for lakes without a
+\code{max_depth} column value. Default \code{NULL}.}
+
+\item{alpha}{Power-law exponent for \code{method = "powerlaw"}.}
+
+\item{slope_quantile}{Quantile of surrounding slope used by the Hollister
+estimate. Default 0.5 (median).}
+
+\item{correct_factor}{Multiplier on the Hollister estimate (regional
+correction factor). Default 1.}
+
+\item{ref_dist, ref_depth}{\code{"shoreline"} method only: depth
+\code{ref_depth} (m) at \code{ref_dist} (m) from shore. Defaults 5 and 1.}
 
 \item{out_file}{Optional file path; if given the raster is written there.}
 }
 \value{
-Invisibly, a single-layer \code{SpatRaster} named \code{depth}.
+Invisibly, a single-layer \code{SpatRaster} named \code{depth},
+with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
+and \code{zmax_source} (\code{"column"}, \code{"argument"} or
+\code{"hollister2011"}).
 }
 \description{
-Builds a fine-resolution water-depth raster for lakes without surveyed
-bathymetry, using a distance-to-shore rule: depth reaches \code{ref_depth}
-at \code{ref_dist} metres from shore and approaches \code{max_depth}
-exponentially toward the lake interior.
+Builds a water-depth raster for lakes without surveyed bathymetry. The
+default is the published distance-to-shore ("cone") method of Hollister &
+Milstead (2010), with the maximum depth taken from a measured value or
+estimated from the surrounding topography (Hollister et al. 2011).
 }
 \details{
-Depth at distance \eqn{d} (m) from the nearest shoreline is
-\deqn{z = z_{max} (1 - e^{-k d}), \quad k = -\log(1 - z_{ref}/z_{max}) / d_{ref}}
-so \eqn{z(d_{ref}) = z_{ref}} and \eqn{z \to z_{max}} offshore.
-Distances are computed from each cell centre to the polygon boundary,
-so \code{lakes} must be in a projected CRS with metre units.
+\strong{Distance to shore.} \eqn{D(x,y)} is the distance (m) from each
+cell centre to the lake boundary; \eqn{D_{max}} is its maximum (the pole
+of inaccessibility). \code{lakes} must be in a projected CRS with metre
+units.
 
-Per-lake guidelines can be supplied as columns of \code{lakes} named
-\code{ref_dist}, \code{ref_depth}, and \code{max_depth}; a non-\code{NA}
-value in such a column overrides the corresponding argument for that
-lake.
+\strong{Maximum depth} \eqn{Z_{max}}, per lake, in priority order:
+a non-\code{NA} \code{max_depth} column in \code{lakes} (e.g. ADF&G or
+USFWS measured depths); the \code{max_depth} argument; otherwise the
+Hollister et al. (2011) estimate from \code{dem}. The source used for each
+lake is returned in \code{attr(x, "zmax")}. Measured values are strongly
+preferred: topographic depth models explain only about 36--50\\% of the
+variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
+Heathcote et al. 2015).
+
+\strong{Methods.}
+\describe{
+\item{\code{"cone"}}{(default) \eqn{z = Z_{max} D / D_{max}}, as in
+Hollister & Milstead (2010) and \code{lakemorpho::lakeVolume()}.}
+\item{\code{"shoreline"}}{The rule used before this version (not from
+the literature): \eqn{z = z_{max}(1 - e^{-kD})} with
+\eqn{k = -\log(1 - z_{ref}/z_{max}) / d_{ref}}, so depth is
+\code{ref_depth} at \code{ref_dist} m from shore. Per-lake
+\code{ref_dist}, \code{ref_depth} and \code{max_depth} columns override
+the arguments; \code{max_depth = NULL} means 4.572 m (15 ft). Use this
+to reproduce earlier results.}
+}
 
 The result follows the bathymetry convention used by
 \code{\link{prepare_lakes}}: positive values are water depth in metres,
-\code{NA} outside lakes. It is interchangeable with a surveyed
-bathymetry raster (e.g. ADF&G maps) and the two can be combined with
-\code{terra::merge()}.
+\code{NA} outside lakes, interchangeable with a surveyed bathymetry raster.
+}
+\references{
+Hollister, J. W., & Milstead, W. B. (2010). Using GIS to estimate lake
+volume from limited data. Lake and Reservoir Management, 26(3), 194--199.
+doi:10.1080/07438141.2010.504321
+
+Hollister, J. W., Milstead, W. B., & Urrutia, M. A. (2011). Predicting
+maximum lake depth from surrounding topography. PLoS ONE, 6(9), e25764.
+doi:10.1371/journal.pone.0025764
+
+Sobek, S., Nisell, J., & Folster, J. (2011). Predicting the depth and volume
+of lakes from map-derived parameters. Inland Waters, 1(3), 177--184.
+doi:10.5268/IW-1.3.426
+
+Heathcote, A. J., del Giorgio, P. A., & Prairie, Y. T. (2015). Predicting
+bathymetric features of lakes from the topography of their surrounding
+landscape. Canadian Journal of Fisheries and Aquatic Sciences, 72(5),
+643--650. doi:10.1139/cjfas-2014-0392
 }
 \seealso{
 \code{\link{prepare_lakes}}, \code{\link{run_lake_watertemp}}

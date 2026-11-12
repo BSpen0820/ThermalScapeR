@@ -14,55 +14,144 @@
   invisible(TRUE)
 }
 
-#' Generate Synthetic Lake Bathymetry from Lake Polygons
+.lake_dist <- function(geom, res) {
+  v    <- terra::vect(geom)
+  e0   <- as.vector(terra::ext(v))
+  e    <- terra::ext(floor(e0[1] / res) * res, ceiling(e0[2] / res) * res,
+                     floor(e0[3] / res) * res, ceiling(e0[4] / res) * res)
+  tmpl <- terra::rast(e, resolution = res, crs = terra::crs(v))
+  inside <- terra::rasterize(v, tmpl)
+  if (all(is.na(terra::values(inside, mat = FALSE))))
+    inside <- terra::rasterize(v, tmpl, touches = TRUE)
+  d    <- terra::mask(terra::distance(tmpl, terra::as.lines(v)), inside)
+  d    <- terra::ifel(d < res / 2, res / 2, d)
+  dmax <- max(terra::values(d, mat = FALSE), na.rm = TRUE)
+  list(d = d, dmax = dmax, tmpl = tmpl)
+}
+
+.bathy_shoreline <- function(d, ref_dist, ref_depth, max_depth) {
+  k <- -log(1 - ref_depth / max_depth) / ref_dist
+  max_depth * (1 - exp(-k * d))
+}
+
+.bathy_cone <- function(d, dmax, zmax) zmax * d / dmax
+
+.lake_zmax <- function(i, lakes, ids, max_depth, dem, dmax, slope_quantile, correct_factor) {
+  col <- if ("max_depth" %in% names(lakes)) as.numeric(lakes$max_depth[i]) else NA_real_
+  if (!is.na(col)) return(list(zmax = col, source = "column"))
+  if (!is.null(max_depth)) return(list(zmax = max_depth, source = "argument"))
+  if (is.null(dem))
+    stop(sprintf(paste0("lake %s has no max depth: supply a max_depth column value, the max_depth ",
+                        "argument, or a dem for the Hollister et al. (2011) estimate"), ids[i]))
+  est <- .hollister_zmax(sf::st_geometry(lakes[i, ]), lakes, dem, dmax,
+                         slope_quantile, correct_factor, ids[i])
+  list(zmax = est$zmax, source = "hollister2011")
+}
+
+.hollister_zmax <- function(geom, lakes_all, dem, dmax, slope_quantile, correct_factor, lake_id) {
+  stop("Hollister et al. (2011) estimate not yet implemented")
+}
+
+#' Generate Lake Bathymetry from Lake Polygons
 #'
-#' Builds a fine-resolution water-depth raster for lakes without surveyed
-#' bathymetry, using a distance-to-shore rule: depth reaches \code{ref_depth}
-#' at \code{ref_dist} metres from shore and approaches \code{max_depth}
-#' exponentially toward the lake interior.
+#' Builds a water-depth raster for lakes without surveyed bathymetry. The
+#' default is the published distance-to-shore ("cone") method of Hollister &
+#' Milstead (2010), with the maximum depth taken from a measured value or
+#' estimated from the surrounding topography (Hollister et al. 2011).
 #'
-#' @details Depth at distance \eqn{d} (m) from the nearest shoreline is
-#'   \deqn{z = z_{max} (1 - e^{-k d}), \quad k = -\log(1 - z_{ref}/z_{max}) / d_{ref}}
-#'   so \eqn{z(d_{ref}) = z_{ref}} and \eqn{z \to z_{max}} offshore.
-#'   Distances are computed from each cell centre to the polygon boundary,
-#'   so \code{lakes} must be in a projected CRS with metre units.
+#' @details
+#' \strong{Distance to shore.} \eqn{D(x,y)} is the distance (m) from each
+#' cell centre to the lake boundary; \eqn{D_{max}} is its maximum (the pole
+#' of inaccessibility). \code{lakes} must be in a projected CRS with metre
+#' units.
 #'
-#'   Per-lake guidelines can be supplied as columns of \code{lakes} named
-#'   \code{ref_dist}, \code{ref_depth}, and \code{max_depth}; a non-\code{NA}
-#'   value in such a column overrides the corresponding argument for that
-#'   lake.
+#' \strong{Maximum depth} \eqn{Z_{max}}, per lake, in priority order:
+#' a non-\code{NA} \code{max_depth} column in \code{lakes} (e.g. ADF&G or
+#' USFWS measured depths); the \code{max_depth} argument; otherwise the
+#' Hollister et al. (2011) estimate from \code{dem}. The source used for each
+#' lake is returned in \code{attr(x, "zmax")}. Measured values are strongly
+#' preferred: topographic depth models explain only about 36--50\% of the
+#' variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
+#' Heathcote et al. 2015).
 #'
-#'   The result follows the bathymetry convention used by
-#'   \code{\link{prepare_lakes}}: positive values are water depth in metres,
-#'   \code{NA} outside lakes. It is interchangeable with a surveyed
-#'   bathymetry raster (e.g. ADF&G maps) and the two can be combined with
-#'   \code{terra::merge()}.
+#' \strong{Methods.}
+#' \describe{
+#'   \item{\code{"cone"}}{(default) \eqn{z = Z_{max} D / D_{max}}, as in
+#'     Hollister & Milstead (2010) and \code{lakemorpho::lakeVolume()}.}
+#'   \item{\code{"shoreline"}}{The rule used before this version (not from
+#'     the literature): \eqn{z = z_{max}(1 - e^{-kD})} with
+#'     \eqn{k = -\log(1 - z_{ref}/z_{max}) / d_{ref}}, so depth is
+#'     \code{ref_depth} at \code{ref_dist} m from shore. Per-lake
+#'     \code{ref_dist}, \code{ref_depth} and \code{max_depth} columns override
+#'     the arguments; \code{max_depth = NULL} means 4.572 m (15 ft). Use this
+#'     to reproduce earlier results.}
+#' }
+#'
+#' The result follows the bathymetry convention used by
+#' \code{\link{prepare_lakes}}: positive values are water depth in metres,
+#' \code{NA} outside lakes, interchangeable with a surveyed bathymetry raster.
+#'
+#' @references
+#' Hollister, J. W., & Milstead, W. B. (2010). Using GIS to estimate lake
+#' volume from limited data. Lake and Reservoir Management, 26(3), 194--199.
+#' doi:10.1080/07438141.2010.504321
+#'
+#' Hollister, J. W., Milstead, W. B., & Urrutia, M. A. (2011). Predicting
+#' maximum lake depth from surrounding topography. PLoS ONE, 6(9), e25764.
+#' doi:10.1371/journal.pone.0025764
+#'
+#' Sobek, S., Nisell, J., & Folster, J. (2011). Predicting the depth and volume
+#' of lakes from map-derived parameters. Inland Waters, 1(3), 177--184.
+#' doi:10.5268/IW-1.3.426
+#'
+#' Heathcote, A. J., del Giorgio, P. A., & Prairie, Y. T. (2015). Predicting
+#' bathymetric features of lakes from the topography of their surrounding
+#' landscape. Canadian Journal of Fisheries and Aquatic Sciences, 72(5),
+#' 643--650. doi:10.1139/cjfas-2014-0392
 #'
 #' @param lakes An \code{sf} polygon object in a projected (metre) CRS, one
-#'   row per lake.
-#' @param res Numeric. Output resolution in metres. Default 1. Must be fine
-#'   enough to resolve \code{ref_dist}.
-#' @param ref_dist Numeric. Reference distance from shore in metres.
-#'   Default 5.
-#' @param ref_depth Numeric. Water depth in metres at \code{ref_dist}.
-#'   Default 1. Must be less than \code{max_depth}.
-#' @param max_depth Numeric. Maximum (asymptotic) depth in metres. Default
-#'   4.572 (15 ft).
+#'   row per lake. Optional per-lake columns: \code{lake_id}, \code{max_depth}
+#'   (and \code{ref_dist}, \code{ref_depth} for \code{"shoreline"}).
+#' @param dem Optional \code{SpatRaster} of elevation (m), used only for the
+#'   Hollister et al. (2011) maximum-depth estimate.
+#' @param method Bathymetry method; see Details. Default \code{"cone"}.
+#' @param res Numeric. Output resolution in metres. Default 1.
+#' @param max_depth Optional maximum depth (m) for lakes without a
+#'   \code{max_depth} column value. Default \code{NULL}.
+#' @param alpha Power-law exponent for \code{method = "powerlaw"}.
+#' @param slope_quantile Quantile of surrounding slope used by the Hollister
+#'   estimate. Default 0.5 (median).
+#' @param correct_factor Multiplier on the Hollister estimate (regional
+#'   correction factor). Default 1.
+#' @param ref_dist,ref_depth \code{"shoreline"} method only: depth
+#'   \code{ref_depth} (m) at \code{ref_dist} (m) from shore. Defaults 5 and 1.
 #' @param out_file Optional file path; if given the raster is written there.
 #'
-#' @return Invisibly, a single-layer \code{SpatRaster} named \code{depth}.
+#' @return Invisibly, a single-layer \code{SpatRaster} named \code{depth},
+#'   with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
+#'   and \code{zmax_source} (\code{"column"}, \code{"argument"} or
+#'   \code{"hollister2011"}).
 #' @seealso \code{\link{prepare_lakes}}, \code{\link{run_lake_watertemp}}
 #' @export
 generate_lake_bathymetry <- function(lakes,
-                                     res       = 1,
-                                     ref_dist  = 5,
-                                     ref_depth = 1,
-                                     max_depth = 4.572,
-                                     out_file  = NULL) {
+                                     dem            = NULL,
+                                     method         = c("cone", "powerlaw", "tin", "shoreline", "all"),
+                                     res            = 1,
+                                     max_depth      = NULL,
+                                     alpha          = 0.6,
+                                     slope_quantile = 0.5,
+                                     correct_factor = 1,
+                                     ref_dist       = 5,
+                                     ref_depth      = 1,
+                                     out_file       = NULL) {
   if (!inherits(lakes, "sf")) stop("lakes must be an sf polygon object")
   .stop_if_longlat(lakes, "lakes")
+  method <- match.arg(method)
+  if (method %in% c("powerlaw", "tin", "all")) stop(sprintf("method '%s' not yet implemented", method))
 
-  n <- nrow(lakes)
+  n   <- nrow(lakes)
+  ids <- if ("lake_id" %in% names(lakes)) as.character(lakes$lake_id) else sprintf("lake_%03d", seq_len(n))
+
   pick <- function(col, default) {
     if (col %in% names(lakes)) {
       v <- as.numeric(lakes[[col]])
@@ -71,31 +160,45 @@ generate_lake_bathymetry <- function(lakes,
       rep(default, n)
     }
   }
-  rd <- pick("ref_dist", ref_dist)
-  rp <- pick("ref_depth", ref_depth)
-  md <- pick("max_depth", max_depth)
 
-  bad <- which(rp >= md | rp <= 0 | rd <= 0)
-  if (length(bad) > 0)
-    stop(sprintf("ref_depth must be > 0 and less than max_depth, and ref_dist > 0 (lake row(s): %s)",
-                 paste(bad, collapse = ", ")))
+  if (method == "shoreline") {
+    rd  <- pick("ref_dist", ref_dist)
+    rp  <- pick("ref_depth", ref_depth)
+    md0 <- if (is.null(max_depth)) 4.572 else max_depth
+    md  <- pick("max_depth", md0)
+    bad <- which(rp >= md | rp <= 0 | rd <= 0)
+    if (length(bad) > 0)
+      stop(sprintf("ref_depth must be > 0 and less than max_depth, and ref_dist > 0 (lake row(s): %s)",
+                   paste(bad, collapse = ", ")))
+    src <- if ("max_depth" %in% names(lakes)) {
+      ifelse(is.na(lakes$max_depth), "argument", "column")
+    } else {
+      rep("argument", n)
+    }
+  }
 
-  rs <- lapply(seq_len(n), function(i) {
-    v    <- terra::vect(sf::st_geometry(lakes[i, ]))
-    e0   <- as.vector(terra::ext(v))
-    e    <- terra::ext(floor(e0[1] / res) * res, ceiling(e0[2] / res) * res,
-                       floor(e0[3] / res) * res, ceiling(e0[4] / res) * res)
-    tmpl <- terra::rast(e, resolution = res, crs = terra::crs(v))
-    d    <- terra::distance(tmpl, terra::as.lines(v))
-    k    <- -log(1 - rp[i] / md[i]) / rd[i]
-    z    <- md[i] * (1 - exp(-k * d))
-    terra::mask(z, terra::rasterize(v, tmpl))
-  })
+  zinfo <- data.frame(lake_id = ids, zmax = NA_real_, zmax_source = NA_character_,
+                      stringsAsFactors = FALSE)
+  rs <- vector("list", n)
+  for (i in seq_len(n)) {
+    ld <- .lake_dist(sf::st_geometry(lakes[i, ]), res)
+    if (method == "shoreline") {
+      zinfo$zmax[i]        <- md[i]
+      zinfo$zmax_source[i] <- src[i]
+      rs[[i]] <- .bathy_shoreline(ld$d, rd[i], rp[i], md[i])
+      next
+    }
+    zm <- .lake_zmax(i, lakes, ids, max_depth, dem, ld$dmax, slope_quantile, correct_factor)
+    zinfo$zmax[i]        <- zm$zmax
+    zinfo$zmax_source[i] <- zm$source
+    rs[[i]] <- .bathy_cone(ld$d, ld$dmax, zm$zmax)
+  }
 
   out <- if (n == 1) rs[[1]] else terra::merge(terra::sprc(rs))
   names(out) <- "depth"
 
   if (!is.null(out_file)) terra::writeRaster(out, out_file, overwrite = TRUE)
+  attr(out, "zmax") <- zinfo
   invisible(out)
 }
 

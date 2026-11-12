@@ -5,7 +5,7 @@ fake_ler <- function(lake, meteo, start, stop, models, ...) {
 
 setup_run <- function() {
   lk <- .test_square_lake(200)
-  b  <- generate_lake_bathymetry(lk)
+  b  <- generate_lake_bathymetry(lk, max_depth = 4.572)
   dem <- terra::rast(terra::ext(b), res = 30, crs = terra::crs(b), vals = 60)
   lc <- terra::rast(terra::ext(b), res = 30, crs = terra::crs(b), vals = 11)
   list(p = prepare_lakes(b, dem, lakes = lk, id_col = "lake_id"), lc = lc,
