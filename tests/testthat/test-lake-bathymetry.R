@@ -107,11 +107,50 @@ test_that("powerlaw peaks at Zmax and alpha = 1 equals cone; alpha column used",
   expect_equal(v, 3 * (50 / 99.5)^2, tolerance = 0.03)
 })
 
-test_that("tin is 0 near shore, Zmax at the pole, finite inside", {
-  skip_if_not_installed("interp")
-  t <- generate_lake_bathymetry(.test_square_lake(200), method = "tin", max_depth = 3)
-  v <- terra::values(t, mat = FALSE); v <- v[!is.na(v)]
-  expect_equal(max(v), 3, tolerance = 1e-6)
-  expect_true(all(is.finite(v)) && all(v >= 0))
-  expect_lt(terra::extract(t, cbind(500000.5, 6700100.5))[1, 1], 0.1)
+test_that("tin is not offered (unsound for non-convex lakes)", {
+  expect_error(generate_lake_bathymetry(.test_square_lake(200), method = "tin", max_depth = 3),
+               "should be one of")
+})
+
+test_that("all: shoreline layer uses the same Zmax as the other layers", {
+  lk <- .test_square_lake(200)
+  a <- generate_lake_bathymetry(lk, method = "all", dem = .test_plane_dem(0.1))
+  zmax <- attr(a, "zmax")$zmax
+  sh <- max(terra::values(a[["shoreline"]]), na.rm = TRUE)
+  expect_lte(sh, zmax + 1e-9)
+  expect_gt(sh, 0.8 * zmax)
+})
+
+test_that("all: a lake shallower than ref_depth gets an NA shoreline layer with a warning", {
+  lk <- rbind(.test_square_lake(200, id = "A"), .test_square_lake(200, x0 = 501000, id = "B"))
+  lk$max_depth <- c(0.8, 3)
+  expect_warning(a <- generate_lake_bathymetry(lk, method = "all"), "lake A")
+  sh <- terra::extract(a[["shoreline"]], cbind(c(500100.5, 501100.5), 6700100.5))[, 1]
+  expect_true(is.na(sh[1]) && sh[2] > 0)
+  expect_equal(terra::extract(a[["cone"]], cbind(500100.5, 6700100.5))[1, 1], 0.8, tolerance = 0.01)
+})
+
+test_that("non-raster dem gives a clear error", {
+  expect_error(generate_lake_bathymetry(.test_square_lake(200), 2), "dem must be")
+})
+
+test_that("Hollister slope is taken on the ring-masked DEM (lakemorpho order)", {
+  lk  <- .test_square_lake(200)
+  set.seed(1)
+  dem <- .test_plane_dem(0.1)
+  dem <- dem + terra::setValues(dem, stats::rnorm(terra::ncell(dem), sd = 1.5))
+  dem <- terra::ifel(is.na(terra::mask(dem, terra::vect(lk))), dem, 5)   # flat lake surface
+  ld   <- .lake_dist(sf::st_geometry(lk), 1)
+  ring <- terra::vect(sf::st_difference(sf::st_buffer(sf::st_geometry(lk), max(ld$dmax, 100)),
+                                        sf::st_geometry(lk)))
+  ref_slope <- terra::terrain(terra::mask(terra::crop(dem, ring), ring), "slope", unit = "radians")
+  ref <- tan(stats::median(terra::values(ref_slope, mat = FALSE), na.rm = TRUE)) * ld$dmax
+  z <- attr(generate_lake_bathymetry(lk, dem = dem), "zmax")$zmax
+  expect_equal(z, ref, tolerance = 0.005)
+})
+
+test_that("DEM covering only part of the ring warns", {
+  lk  <- .test_square_lake(200)
+  dem <- .test_plane_dem(0.1, xmin = 499700, xmax = 500150)
+  expect_warning(generate_lake_bathymetry(lk, dem = dem), "partly")
 })

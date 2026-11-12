@@ -7,7 +7,7 @@
 generate_lake_bathymetry(
   lakes,
   dem = NULL,
-  method = c("cone", "powerlaw", "tin", "shoreline", "all"),
+  method = c("cone", "powerlaw", "shoreline", "all"),
   res = 1,
   max_depth = NULL,
   alpha = 0.6,
@@ -23,8 +23,9 @@ generate_lake_bathymetry(
 row per lake. Optional per-lake columns: \code{lake_id}, \code{max_depth}
 (and \code{ref_dist}, \code{ref_depth} for \code{"shoreline"}).}
 
-\item{dem}{Optional \code{SpatRaster} of elevation (m), used only for the
-Hollister et al. (2011) maximum-depth estimate.}
+\item{dem}{Optional \code{SpatRaster} (or file path) of elevation (m),
+used only for the Hollister et al. (2011) maximum-depth estimate. Note
+that \code{dem} is the second argument: pass \code{res} by name.}
 
 \item{method}{Bathymetry method; see Details. Default \code{"cone"}.}
 
@@ -49,7 +50,7 @@ correction factor). Default 1.}
 }
 \value{
 Invisibly, a single-layer \code{SpatRaster} named \code{depth}
-(four named layers for \code{method = "all"}),
+(three named layers for \code{method = "all"}),
 with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
 and \code{zmax_source} (\code{"column"}, \code{"argument"} or
 \code{"hollister2011"}).
@@ -77,16 +78,22 @@ The Hollister et al. (2011) estimate, as implemented in
 \eqn{Z_{max} = c \tan(\theta_q) D_{max}}, where \eqn{\theta_q} is the
 \code{slope_quantile} (default median) of terrain slope within a ring of
 width \eqn{\max(D_{max}, 100)} m around the lake (the
-\code{lakemorpho::lakeSurroundTopo()} buffer), with all lakes in
-\code{lakes} masked out, and \eqn{c} is \code{correct_factor}. The DEM is
-reprojected (bilinear) to the lakes' CRS if needed. lakemorpho multiplies
-the slope in radians; \eqn{\tan} is used here (the two differ by < 1\\%
-below 10 degrees). If the slope quantile is 0 the mean slope is used, as
-in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g. muskeg)
-triggers a warning, and zero slope is an error. Measured values are strongly
-preferred: topographic depth models explain only about 36--50\\% of the
-variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
-Heathcote et al. 2015).
+\code{lakemorpho::lakeSurroundTopo()} buffer), and \eqn{c} is
+\code{correct_factor}. As in lakemorpho, the DEM is masked to the ring
+before slope is computed. Two deliberate differences from lakemorpho:
+(1) every lake in \code{lakes}, not only the focal lake, is removed from
+the ring, so a neighbouring lake's flat surface does not lower the slope;
+(2) lakemorpho multiplies the slope in radians, whereas \eqn{\tan} is used
+here (the two differ by < 1\\% below 10 degrees). The DEM is reprojected
+(bilinear) to the lakes' CRS if needed, and a warning is given if it does
+not cover the whole ring. If the slope quantile is 0 the mean slope is
+used, as in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g.
+muskeg) triggers a warning, and zero slope is an error.
+
+Measured maximum depths are strongly preferred: topographic models explain
+only part of the variation in maximum depth (about 50--60\\% in Hollister et
+al. 2011; under 40\\% in Sobek et al. 2011), and none were fitted to
+Alaskan lakes.
 
 \strong{Methods.}
 \describe{
@@ -108,14 +115,13 @@ are robust to the assumed shape; not taken from the cited literature):
 \eqn{\alpha = 1} is the cone; \eqn{\alpha < 1} gives steep sides and a
 broad deep basin, \eqn{\alpha > 1} a shallow shelf and a narrow deep
 centre. A per-lake \code{alpha} column overrides the argument.}
-\item{\code{"tin"}}{Linear Delaunay (TIN) interpolation
-(\code{interp::interp()}) through shoreline vertices densified every
-\code{res} m at depth 0 and the pole of inaccessibility at
-\eqn{Z_{max}}. Requires the \code{interp} package.}
-\item{\code{"all"}}{A four-layer raster named \code{cone},
-\code{powerlaw}, \code{tin}, \code{shoreline}. The cone is layer 1, so
-\code{\link{prepare_lakes}} (which reads layer 1) uses the published
-method unless a layer is selected, e.g. \code{x[["tin"]]}.}
+\item{\code{"all"}}{A three-layer raster named \code{cone},
+\code{powerlaw}, \code{shoreline}, all using the same \eqn{Z_{max}} per
+lake. A lake whose \eqn{Z_{max}} is not greater than its
+\code{ref_depth} gets \code{NA} in the \code{shoreline} layer, with a
+warning. The cone is layer 1, so \code{\link{prepare_lakes}} (which
+reads layer 1) uses the published method unless a layer is selected,
+e.g. \code{x[["powerlaw"]]}.}
 }
 
 The result follows the bathymetry convention used by
@@ -134,11 +140,6 @@ doi:10.1371/journal.pone.0025764
 Sobek, S., Nisell, J., & Folster, J. (2011). Predicting the depth and volume
 of lakes from map-derived parameters. Inland Waters, 1(3), 177--184.
 doi:10.5268/IW-1.3.426
-
-Heathcote, A. J., del Giorgio, P. A., & Prairie, Y. T. (2015). Predicting
-bathymetric features of lakes from the topography of their surrounding
-landscape. Canadian Journal of Fisheries and Aquatic Sciences, 72(5),
-643--650. doi:10.1139/cjfas-2014-0392
 }
 \seealso{
 \code{\link{prepare_lakes}}, \code{\link{run_lake_watertemp}}

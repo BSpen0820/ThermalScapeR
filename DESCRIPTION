@@ -1,7 +1,7 @@
 Package: ThermalScapeR
 Title: Landscape-Scale Microclimate and Endotherm Energetics Modeling
     Tools
-Version: 2.0.1
+Version: 2.1.0
 Authors@R: person("Bryan", "Spencer", role = c("aut", "cre"),
                    email = "bspencer@uidaho.edu")
 Description: A collection of tools for downloading, preprocessing, and
@@ -38,8 +38,7 @@ Suggests:
     rmarkdown,
     testthat (>= 3.2.0),
     withr,
-    LakeEnsemblR,
-    interp
+    LakeEnsemblR
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Remotes:

@@ -38,26 +38,6 @@
 
 .bathy_powerlaw <- function(d, dmax, zmax, alpha) zmax * (d / dmax)^alpha
 
-.bathy_tin <- function(geom, d, dmax, zmax, res) {
-  if (!requireNamespace("interp", quietly = TRUE))
-    stop("method 'tin' requires the 'interp' package: install.packages('interp')")
-  shore <- sf::st_segmentize(sf::st_cast(sf::st_union(geom), "MULTILINESTRING"), res)
-  bnd   <- unique(sf::st_coordinates(shore)[, 1:2, drop = FALSE])
-  dv    <- terra::values(d, mat = FALSE)
-  pole  <- terra::xyFromCell(d, which.max(dv))
-  cells <- which(!is.na(dv))
-  xy    <- terra::xyFromCell(d, cells)
-  zi <- interp::interp(x = c(bnd[, 1], pole[1]), y = c(bnd[, 2], pole[2]),
-                       z = c(rep(0, nrow(bnd)), zmax),
-                       xo = xy[, 1], yo = xy[, 2], output = "points", linear = TRUE)$z
-  zi[is.na(zi)] <- 0
-  vals <- rep(NA_real_, length(dv))
-  vals[cells] <- pmin(pmax(zi, 0), zmax)
-  out <- terra::rast(d)
-  terra::values(out) <- vals
-  out
-}
-
 .lake_zmax <- function(i, lakes, ids, max_depth, dem, dmax, slope_quantile, correct_factor) {
   col <- if ("max_depth" %in% names(lakes)) as.numeric(lakes$max_depth[i]) else NA_real_
   if (!is.na(col)) return(list(zmax = col, source = "column"))
@@ -72,27 +52,36 @@
 
 # Hollister et al. (2011) / lakemorpho::lakeMaxDepth(): Zmax from the
 # slope quantile of the land within a ring of width max(Dmax, 100 m) around
-# the lake (lakemorpho::lakeSurroundTopo()), all modeled lakes masked out.
+# the lake (lakemorpho::lakeSurroundTopo()). As in lakemorpho the DEM is
+# masked to the ring before slope is computed. Unlike lakemorpho, all
+# modeled lakes (not only the focal one) are removed from the ring.
 .hollister_zmax <- function(geom, lakes_all, dem, dmax, slope_quantile, correct_factor, lake_id) {
-  if (!inherits(dem, "SpatRaster")) dem <- terra::rast(dem)
   dem   <- dem[[1]]
-  ring  <- sf::st_difference(sf::st_buffer(sf::st_union(geom), max(dmax, 100)),
+  width <- max(dmax, 100)
+  ring  <- sf::st_difference(sf::st_buffer(sf::st_union(geom), width),
                              sf::st_union(sf::st_geometry(lakes_all)))
   ringv <- terra::vect(ring)
-  pad   <- 3 * max(terra::res(dem))
 
   if (!terra::same.crs(dem, ringv)) {
+    pad <- 3 * max(terra::res(dem))
     dem <- terra::crop(dem, terra::ext(terra::project(ringv, terra::crs(dem))) + pad)
     dem <- terra::project(dem, terra::crs(ringv), method = "bilinear")
-    pad <- 3 * max(terra::res(dem))
   }
-  dem <- terra::crop(dem, terra::ext(ringv) + pad)
+  dem <- terra::extend(terra::crop(dem, ringv), terra::ext(ringv), snap = "out")
+  dem <- terra::mask(dem, ringv)
+
+  ring_cells <- !is.na(terra::values(terra::rasterize(ringv, dem), mat = FALSE))
+  n_missing  <- sum(ring_cells & is.na(terra::values(dem, mat = FALSE)))
+  if (n_missing > 0)
+    warning(sprintf(paste0("lake %s: dem only partly covers the surrounding %.0f m buffer ",
+                           "(%d of %d cells missing); the depth estimate uses the covered part"),
+                    lake_id, width, n_missing, sum(ring_cells)))
 
   slp <- terra::terrain(dem, "slope", unit = "radians")
-  v   <- terra::values(terra::mask(slp, ringv), mat = FALSE)
+  v   <- terra::values(slp, mat = FALSE)
   v   <- v[!is.na(v)]
   if (length(v) == 0)
-    stop(sprintf("lake %s: dem has no values in the surrounding %.0f m buffer", lake_id, max(dmax, 100)))
+    stop(sprintf("lake %s: dem has no values in the surrounding %.0f m buffer", lake_id, width))
 
   sq <- unname(stats::quantile(v, slope_quantile))
   if (sq == 0) sq <- mean(v)
@@ -129,16 +118,22 @@
 #' \eqn{Z_{max} = c \tan(\theta_q) D_{max}}, where \eqn{\theta_q} is the
 #' \code{slope_quantile} (default median) of terrain slope within a ring of
 #' width \eqn{\max(D_{max}, 100)} m around the lake (the
-#' \code{lakemorpho::lakeSurroundTopo()} buffer), with all lakes in
-#' \code{lakes} masked out, and \eqn{c} is \code{correct_factor}. The DEM is
-#' reprojected (bilinear) to the lakes' CRS if needed. lakemorpho multiplies
-#' the slope in radians; \eqn{\tan} is used here (the two differ by < 1\%
-#' below 10 degrees). If the slope quantile is 0 the mean slope is used, as
-#' in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g. muskeg)
-#' triggers a warning, and zero slope is an error. Measured values are strongly
-#' preferred: topographic depth models explain only about 36--50\% of the
-#' variation in maximum depth (Hollister et al. 2011; Sobek et al. 2011;
-#' Heathcote et al. 2015).
+#' \code{lakemorpho::lakeSurroundTopo()} buffer), and \eqn{c} is
+#' \code{correct_factor}. As in lakemorpho, the DEM is masked to the ring
+#' before slope is computed. Two deliberate differences from lakemorpho:
+#' (1) every lake in \code{lakes}, not only the focal lake, is removed from
+#' the ring, so a neighbouring lake's flat surface does not lower the slope;
+#' (2) lakemorpho multiplies the slope in radians, whereas \eqn{\tan} is used
+#' here (the two differ by < 1\% below 10 degrees). The DEM is reprojected
+#' (bilinear) to the lakes' CRS if needed, and a warning is given if it does
+#' not cover the whole ring. If the slope quantile is 0 the mean slope is
+#' used, as in lakemorpho; a slope below 0.01 rad (about 0.57 degrees, e.g.
+#' muskeg) triggers a warning, and zero slope is an error.
+#'
+#' Measured maximum depths are strongly preferred: topographic models explain
+#' only part of the variation in maximum depth (about 50--60\% in Hollister et
+#' al. 2011; under 40\% in Sobek et al. 2011), and none were fitted to
+#' Alaskan lakes.
 #'
 #' \strong{Methods.}
 #' \describe{
@@ -160,14 +155,13 @@
 #'     \eqn{\alpha = 1} is the cone; \eqn{\alpha < 1} gives steep sides and a
 #'     broad deep basin, \eqn{\alpha > 1} a shallow shelf and a narrow deep
 #'     centre. A per-lake \code{alpha} column overrides the argument.}
-#'   \item{\code{"tin"}}{Linear Delaunay (TIN) interpolation
-#'     (\code{interp::interp()}) through shoreline vertices densified every
-#'     \code{res} m at depth 0 and the pole of inaccessibility at
-#'     \eqn{Z_{max}}. Requires the \code{interp} package.}
-#'   \item{\code{"all"}}{A four-layer raster named \code{cone},
-#'     \code{powerlaw}, \code{tin}, \code{shoreline}. The cone is layer 1, so
-#'     \code{\link{prepare_lakes}} (which reads layer 1) uses the published
-#'     method unless a layer is selected, e.g. \code{x[["tin"]]}.}
+#'   \item{\code{"all"}}{A three-layer raster named \code{cone},
+#'     \code{powerlaw}, \code{shoreline}, all using the same \eqn{Z_{max}} per
+#'     lake. A lake whose \eqn{Z_{max}} is not greater than its
+#'     \code{ref_depth} gets \code{NA} in the \code{shoreline} layer, with a
+#'     warning. The cone is layer 1, so \code{\link{prepare_lakes}} (which
+#'     reads layer 1) uses the published method unless a layer is selected,
+#'     e.g. \code{x[["powerlaw"]]}.}
 #' }
 #'
 #' The result follows the bathymetry convention used by
@@ -187,16 +181,12 @@
 #' of lakes from map-derived parameters. Inland Waters, 1(3), 177--184.
 #' doi:10.5268/IW-1.3.426
 #'
-#' Heathcote, A. J., del Giorgio, P. A., & Prairie, Y. T. (2015). Predicting
-#' bathymetric features of lakes from the topography of their surrounding
-#' landscape. Canadian Journal of Fisheries and Aquatic Sciences, 72(5),
-#' 643--650. doi:10.1139/cjfas-2014-0392
-#'
 #' @param lakes An \code{sf} polygon object in a projected (metre) CRS, one
 #'   row per lake. Optional per-lake columns: \code{lake_id}, \code{max_depth}
 #'   (and \code{ref_dist}, \code{ref_depth} for \code{"shoreline"}).
-#' @param dem Optional \code{SpatRaster} of elevation (m), used only for the
-#'   Hollister et al. (2011) maximum-depth estimate.
+#' @param dem Optional \code{SpatRaster} (or file path) of elevation (m),
+#'   used only for the Hollister et al. (2011) maximum-depth estimate. Note
+#'   that \code{dem} is the second argument: pass \code{res} by name.
 #' @param method Bathymetry method; see Details. Default \code{"cone"}.
 #' @param res Numeric. Output resolution in metres. Default 1.
 #' @param max_depth Optional maximum depth (m) for lakes without a
@@ -212,7 +202,7 @@
 #' @param out_file Optional file path; if given the raster is written there.
 #'
 #' @return Invisibly, a single-layer \code{SpatRaster} named \code{depth}
-#'   (four named layers for \code{method = "all"}),
+#'   (three named layers for \code{method = "all"}),
 #'   with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
 #'   and \code{zmax_source} (\code{"column"}, \code{"argument"} or
 #'   \code{"hollister2011"}).
@@ -220,7 +210,7 @@
 #' @export
 generate_lake_bathymetry <- function(lakes,
                                      dem            = NULL,
-                                     method         = c("cone", "powerlaw", "tin", "shoreline", "all"),
+                                     method         = c("cone", "powerlaw", "shoreline", "all"),
                                      res            = 1,
                                      max_depth      = NULL,
                                      alpha          = 0.6,
@@ -232,8 +222,11 @@ generate_lake_bathymetry <- function(lakes,
   if (!inherits(lakes, "sf")) stop("lakes must be an sf polygon object")
   .stop_if_longlat(lakes, "lakes")
   method <- match.arg(method)
-  if (method %in% c("tin", "all") && !requireNamespace("interp", quietly = TRUE))
-    stop(sprintf("method '%s' requires the 'interp' package: install.packages('interp')", method))
+  if (!is.null(dem)) {
+    if (is.character(dem) && length(dem) == 1) dem <- terra::rast(dem)
+    if (!inherits(dem, "SpatRaster"))
+      stop("dem must be NULL, a SpatRaster, or a raster file path (pass res by name: res = ...)")
+  }
 
   n   <- nrow(lakes)
   ids <- if ("lake_id" %in% names(lakes)) as.character(lakes$lake_id) else sprintf("lake_%03d", seq_len(n))
@@ -254,7 +247,7 @@ generate_lake_bathymetry <- function(lakes,
     rp  <- pick("ref_depth", ref_depth)
     md0 <- if (is.null(max_depth)) 4.572 else max_depth
     md  <- pick("max_depth", md0)
-    bad <- which(rp >= md | rp <= 0 | rd <= 0)
+    bad <- if (method == "shoreline") which(rp >= md | rp <= 0 | rd <= 0) else which(rp <= 0 | rd <= 0)
     if (length(bad) > 0)
       stop(sprintf("ref_depth must be > 0 and less than max_depth, and ref_dist > 0 (lake row(s): %s)",
                    paste(bad, collapse = ", ")))
@@ -279,19 +272,25 @@ generate_lake_bathymetry <- function(lakes,
     zm <- .lake_zmax(i, lakes, ids, max_depth, dem, ld$dmax, slope_quantile, correct_factor)
     zinfo$zmax[i]        <- zm$zmax
     zinfo$zmax_source[i] <- zm$source
-    geom <- sf::st_geometry(lakes[i, ])
+    if (method == "all") {
+      sh <- if (rp[i] < zm$zmax) {
+        .bathy_shoreline(ld$d, rd[i], rp[i], zm$zmax)
+      } else {
+        warning(sprintf(paste0("lake %s: max depth %.2f m is not greater than ref_depth %.2f m; ",
+                               "its shoreline layer is left NA"), ids[i], zm$zmax, rp[i]))
+        ld$d * NA
+      }
+    }
     rs[[i]] <- switch(method,
       cone     = .bathy_cone(ld$d, ld$dmax, zm$zmax),
       powerlaw = .bathy_powerlaw(ld$d, ld$dmax, zm$zmax, al[i]),
-      tin      = .bathy_tin(geom, ld$d, ld$dmax, zm$zmax, res),
       all      = c(.bathy_cone(ld$d, ld$dmax, zm$zmax),
                    .bathy_powerlaw(ld$d, ld$dmax, zm$zmax, al[i]),
-                   .bathy_tin(geom, ld$d, ld$dmax, zm$zmax, res),
-                   .bathy_shoreline(ld$d, rd[i], rp[i], md[i])))
+                   sh))
   }
 
   out <- if (n == 1) rs[[1]] else terra::merge(terra::sprc(rs))
-  names(out) <- if (method == "all") c("cone", "powerlaw", "tin", "shoreline") else "depth"
+  names(out) <- if (method == "all") c("cone", "powerlaw", "shoreline") else "depth"
 
   if (!is.null(out_file)) terra::writeRaster(out, out_file, overwrite = TRUE)
   attr(out, "zmax") <- zinfo
