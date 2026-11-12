@@ -584,3 +584,224 @@ prepare_lakes <- function(bathy,
   }
   res
 }
+
+.resolve_lake_clim <- function(x, period_label, study_area) {
+  if (is.data.frame(x)) return(x)
+  if (!is.character(x)) stop("climate input must be a data.frame, an RDS file path, or a directory")
+  path <- .resolve_rds_path(x, "Climate", period_label, study_area)
+  readr::read_rds(path)
+}
+
+.month_end_hour <- function(d) {
+  last_day <- seq(d, by = "1 month", length.out = 2)[2] - 1
+  as.POSIXct(sprintf("%s 23:00:00", format(last_day, "%Y-%m-%d")), tz = "UTC")
+}
+
+#' Model Lake Surface Water Temperature with a LakeEnsemblR Ensemble
+#'
+#' Runs one-dimensional lake models (via LakeEnsemblR) for each prepared
+#' lake, driven by the same weather forcing as the microclimate model, and
+#' writes the hourly ensemble-mean near-surface water temperature onto the
+#' landcover-water cells of the microclimate grid.
+#'
+#' @details
+#' \strong{Weather.} \code{clim} (and \code{spinup_clim}) is either the
+#' packaged climate used by \code{\link{run_micro_big_nichemap}} (an RDS from
+#' \code{\link{package_climate}}, or a directory of them resolved per period
+#' as \code{{study_area}_Climate_{period_label}.RDS}) or an hourly
+#' \code{climdata} data.frame from \code{\link{build_climdata_crn_era5}}.
+#' Packaged climate is sampled at the cell nearest each lake centroid; a
+#' data.frame forces every lake identically. Wind from a climdata
+#' data.frame (2 m) is scaled to the 10 m LakeEnsemblR expects with a log
+#' profile (z0 = 0.01 m). Gaps up to 6 h are interpolated; longer gaps or
+#' missing hours stop with an error.
+#'
+#' \strong{Spin-up.} Lake models start from a uniform \code{init_temp}
+#' profile. To let ice-out emerge from real weather, supply
+#' \code{spinup_clim} covering \code{spinup_start} (default 1 October of the
+#' year before each period) up to the period start; only the period is kept.
+#' Without \code{spinup_clim} the run starts at the period start, optionally
+#' with \code{ice_init} metres of starting ice (GLM and GOTM only).
+#'
+#' \strong{Ensemble.} Each chosen model runs in its own folder with inflows
+#' and outflows off. Temperature is taken at each lake's \code{out_depth}
+#' (\code{min(0.5, model_depth / 2)}). \code{water_temp} is the mean across
+#' models that ran; a failing model is dropped with a warning, and the run
+#' stops if all models fail for a lake. During ice cover each model reports
+#' its under-ice water temperature; \code{ice_frac} is the share of models
+#' with ice that hour. MyLake reports daily values only (interpolated to
+#' hours without a diurnal cycle), so it is not in the default \code{models}.
+#'
+#' \strong{Grid.} Every \code{landcover} cell whose class is in
+#' \code{water_classes} takes the series of the lake it overlaps or touches,
+#' else the nearest lake within \code{max_match_dist} metres; other cells
+#' are \code{NA}.
+#'
+#' \strong{Known limitations.} Ponds shallower than their
+#' \code{depth_floor} (see \code{\link{prepare_lakes}}) carry extra thermal
+#' mass and respond more slowly than reality. Several models fail on very
+#' shallow water, so ponds near the floor may be run by only some models.
+#' One value per lake ignores warmer near-shore shallows.
+#'
+#' @param lakes Output of \code{\link{prepare_lakes}}.
+#' @param clim Period weather: packaged climate RDS path or directory, or a
+#'   climdata data.frame.
+#' @param dates A data.frame with \code{Start_Dates}/\code{End_Dates}, or a
+#'   length-2 Date vector. Day components are ignored; whole months are run.
+#' @param landcover A \code{SpatRaster} (or path) on the microclimate grid.
+#' @param water_classes Landcover value(s) that denote water (e.g. 11 for
+#'   NLCD open water).
+#' @param out_dir Output directory.
+#' @param Kw Light extinction coefficient (m^-1): a single number, a named
+#'   numeric vector by \code{lake_id}, or \code{NULL} to use a \code{Kw}
+#'   column in \code{lakes}. Required.
+#' @param models Lake models to run; any of \code{"FLake"}, \code{"GLM"},
+#'   \code{"GOTM"}, \code{"Simstrat"}, \code{"MyLake"}. Default all but MyLake.
+#' @param spinup_clim Optional spin-up weather, same forms as \code{clim}.
+#'   A directory is resolved with the label from \code{spinup_start} to the
+#'   month before the period start.
+#' @param spinup_start Optional Date for the spin-up start. Default 1
+#'   October of the year before each period start.
+#' @param init_temp Initial uniform water temperature (degC). Default 4.
+#' @param ice_init Optional initial ice thickness (m). Default 0.
+#' @param max_match_dist Maximum distance (m) for matching a water cell to
+#'   the nearest lake. Default 60.
+#' @param study_area Optional study area name, used as file prefix and to
+#'   resolve climate files.
+#' @param keep_runs Logical. Keep the per-model LakeEnsemblR run folders
+#'   (\code{out_dir/LER_runs}). Default \code{FALSE}.
+#'
+#' @return Invisibly, a log data.frame with columns \code{period_label},
+#'   \code{lake_id}, \code{models_ok}, \code{models_failed} (comma-joined),
+#'   \code{n_cells}, and \code{nc_file}. Writes
+#'   \code{{study_area}_WaterTemp_{period_label}.nc} (variables
+#'   \code{water_temp} in degC and \code{ice_frac}) and
+#'   \code{{study_area}_WaterTemp_Lakes_{period_label}.csv} (per-lake
+#'   ensemble and per-model series).
+#' @seealso \code{\link{generate_lake_bathymetry}}, \code{\link{prepare_lakes}},
+#'   \code{\link{package_climate}}, \code{\link{build_climdata_crn_era5}}
+#' @export
+run_lake_watertemp <- function(lakes,
+                               clim,
+                               dates,
+                               landcover,
+                               water_classes,
+                               out_dir,
+                               Kw,
+                               models         = c("FLake", "GLM", "GOTM", "Simstrat"),
+                               spinup_clim    = NULL,
+                               spinup_start   = NULL,
+                               init_temp      = 4,
+                               ice_init       = 0,
+                               max_match_dist = 60,
+                               study_area     = NULL,
+                               keep_runs      = FALSE) {
+  models <- match.arg(models, c("FLake", "GLM", "GOTM", "Simstrat", "MyLake"), several.ok = TRUE)
+  if (!inherits(lakes, "sf") || !"hypsograph" %in% names(lakes))
+    stop("lakes must be the output of prepare_lakes()")
+  if (!inherits(landcover, "SpatRaster")) landcover <- terra::rast(landcover)
+  n <- nrow(lakes)
+
+  kw <- if (is.null(Kw)) {
+    if (!"Kw" %in% names(lakes)) stop("Kw is NULL and lakes has no Kw column")
+    lakes$Kw
+  } else if (length(Kw) == 1 && is.null(names(Kw))) {
+    rep(Kw, n)
+  } else {
+    miss <- setdiff(lakes$lake_id, names(Kw))
+    if (length(miss) > 0)
+      stop(sprintf("Kw has no value for lake(s): %s", paste(miss, collapse = ", ")))
+    unname(Kw[lakes$lake_id])
+  }
+  if (anyNA(kw) || any(kw <= 0)) stop("Kw must be positive for every lake")
+
+  if (is.data.frame(dates)) {
+    if (!all(c("Start_Dates", "End_Dates") %in% names(dates)))
+      stop("dates data.frame must contain columns 'Start_Dates' and 'End_Dates'")
+    starts <- as.Date(dates$Start_Dates); ends <- as.Date(dates$End_Dates)
+  } else {
+    if (length(dates) != 2) stop("dates must be a data.frame or a length-2 Date vector")
+    starts <- as.Date(dates[1]); ends <- as.Date(dates[2])
+  }
+
+  prefix <- if (is.null(study_area)) "" else sprintf("%s_", study_area)
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+
+  lake_idx <- .map_lakes_to_grid(lakes, landcover, water_classes, max_match_dist)
+  n_cells  <- tabulate(terra::values(lake_idx, mat = FALSE), nbins = n)
+
+  log <- list()
+  for (k in seq_along(starts)) {
+    p      <- .normalize_period(starts[k], ends[k])
+    label  <- p$period_label
+    pstart <- as.POSIXct(format(p$start_date, "%Y-%m-%d"), tz = "UTC")
+    pstop  <- .month_end_hour(p$end_date)
+    cat(sprintf("Period %s\n", label))
+
+    clim_p <- .resolve_lake_clim(clim, label, study_area)
+
+    if (is.null(spinup_clim)) {
+      message(sprintf("No spin-up climate supplied for %s; spin-up skipped, run starts at the period start", label))
+      run_start <- pstart
+      clim_s    <- NULL
+    } else {
+      ss <- if (is.null(spinup_start)) {
+        as.Date(sprintf("%d-10-01", as.integer(format(p$start_date, "%Y")) - 1L))
+      } else {
+        as.Date(spinup_start)
+      }
+      if (ss >= p$start_date) stop("spinup_start must be before the period start")
+      prev_month <- seq(p$start_date, by = "-1 month", length.out = 2)[2]
+      clim_s     <- .resolve_lake_clim(spinup_clim, .normalize_period(ss, prev_month)$period_label,
+                                       study_area)
+      run_start  <- as.POSIXct(format(ss, "%Y-%m-%d"), tz = "UTC")
+    }
+
+    run_dir <- file.path(out_dir, "LER_runs", label)
+    ens <- vector("list", n)
+    for (i in seq_len(n)) {
+      lake <- lakes[i, ]
+      met  <- .lake_meteo(clim_p, lake$lon, lake$lat, pstart, pstop)
+      if (!is.null(clim_s))
+        met <- rbind(.lake_meteo(clim_s, lake$lon, lake$lat, run_start, pstart - 3600), met)
+
+      mo <- .ler_run_lake(lake, met, run_start, pstop, models, Kw = kw[i],
+                          init_temp = init_temp, ice_init = ice_init, run_dir = run_dir)
+      if (length(mo) == 0)
+        stop(sprintf("all models failed for lake %s (period %s)", lake$lake_id, label))
+      ens[[i]] <- .ensemble_lake(mo, pstart, pstop)
+
+      log[[length(log) + 1]] <- data.frame(
+        period_label  = label,
+        lake_id       = lake$lake_id,
+        models_ok     = paste(names(mo), collapse = ","),
+        models_failed = paste(setdiff(models, names(mo)), collapse = ","),
+        n_cells       = n_cells[i],
+        nc_file       = file.path(out_dir, sprintf("%sWaterTemp_%s.nc", prefix, label)),
+        stringsAsFactors = FALSE)
+    }
+
+    nc_file <- file.path(out_dir, sprintf("%sWaterTemp_%s.nc", prefix, label))
+    .write_watertemp_nc(lake_idx, lapply(ens, function(e) e[, c("datetime", "water_temp", "ice_frac")]),
+                        nc_file)
+
+    all_cols <- unique(unlist(lapply(ens, names)))
+    tab <- do.call(rbind, lapply(seq_len(n), function(i) {
+      e <- ens[[i]]
+      for (cc in setdiff(all_cols, names(e))) e[[cc]] <- NA_real_
+      cbind(lake_id = lakes$lake_id[i], e[, all_cols])
+    }))
+    tab$datetime <- format(tab$datetime, "%Y-%m-%d %H:%M:%S", tz = "UTC")
+    utils::write.csv(tab, file.path(out_dir, sprintf("%sWaterTemp_Lakes_%s.csv", prefix, label)),
+                     row.names = FALSE)
+
+    if (!keep_runs) unlink(run_dir, recursive = TRUE)
+    rm(ens, tab, clim_p, clim_s); invisible(gc())
+  }
+
+  runs_root <- file.path(out_dir, "LER_runs")
+  if (!keep_runs && dir.exists(runs_root) && length(list.files(runs_root)) == 0)
+    unlink(runs_root, recursive = TRUE)
+
+  invisible(do.call(rbind, log))
+}

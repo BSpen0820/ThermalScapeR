@@ -63,6 +63,27 @@ googledrive::drive_auth()  # separate auth needed for poll_drive()
 `zarr`, and `netCDF4` in the active conda environment; it will attempt
 `reticulate::py_install()` for anything missing.
 
+### Lake water temperature (optional)
+
+`run_lake_watertemp()` runs 1D lake models through
+[LakeEnsemblR](https://github.com/aemon-j/LakeEnsemblR), which is in `Suggests`
+and, with its model packages, must be installed from GitHub (in this order):
+
+```r
+remotes::install_github("GLEON/rLakeAnalyzer")
+remotes::install_github("aemon-j/GLM3r", ref = "v3.1.1")
+remotes::install_github("USGS-R/glmtools", ref = "ggplot_overhaul")
+remotes::install_github("aemon-j/FLakeR", ref = "inflow")
+remotes::install_github("aemon-j/GOTMr")
+remotes::install_github("aemon-j/gotmtools")
+remotes::install_github("aemon-j/SimstratR")
+remotes::install_github("aemon-j/MyLakeR")
+remotes::install_github("aemon-j/LakeEnsemblR")
+```
+
+The model packages ship prebuilt executables; the Windows builds are tested,
+while the Linux builds are old and may need rebuilding on HPC systems.
+
 ### NicheMapR Endotherm model executable
 
 `run_metabolic_chamber()`, `run_endo_big_nichemap()`, and
