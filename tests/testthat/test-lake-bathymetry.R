@@ -93,3 +93,25 @@ test_that("flat terrain warns, never NaN, and all-zero slope stops naming the la
   expect_false(any(is.nan(terra::values(b))))
   expect_error(suppressWarnings(generate_lake_bathymetry(lk, dem = .test_plane_dem(0))), "A")
 })
+
+test_that("powerlaw peaks at Zmax and alpha = 1 equals cone; alpha column used", {
+  lk <- .test_square_lake(200)
+  p <- generate_lake_bathymetry(lk, method = "powerlaw", max_depth = 3)
+  expect_equal(max(terra::values(p), na.rm = TRUE), 3)
+  c1 <- generate_lake_bathymetry(lk, method = "cone", max_depth = 3)
+  p1 <- generate_lake_bathymetry(lk, method = "powerlaw", alpha = 1, max_depth = 3)
+  expect_equal(terra::values(p1), terra::values(c1))
+  lk$alpha <- 2
+  p2 <- generate_lake_bathymetry(lk, method = "powerlaw", alpha = 0.5, max_depth = 3)
+  v <- terra::extract(p2, cbind(500050.5, 6700100.5))[1, 1]
+  expect_equal(v, 3 * (50 / 99.5)^2, tolerance = 0.03)
+})
+
+test_that("tin is 0 near shore, Zmax at the pole, finite inside", {
+  skip_if_not_installed("interp")
+  t <- generate_lake_bathymetry(.test_square_lake(200), method = "tin", max_depth = 3)
+  v <- terra::values(t, mat = FALSE); v <- v[!is.na(v)]
+  expect_equal(max(v), 3, tolerance = 1e-6)
+  expect_true(all(is.finite(v)) && all(v >= 0))
+  expect_lt(terra::extract(t, cbind(500000.5, 6700100.5))[1, 1], 0.1)
+})

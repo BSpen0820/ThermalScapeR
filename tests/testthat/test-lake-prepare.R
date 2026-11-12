@@ -44,3 +44,12 @@ test_that("bathymetry in a feet CRS is rejected", {
                    crs = "EPSG:2232", vals = 1)
   expect_error(prepare_lakes(b, b), "metre")
 })
+
+test_that("all returns four named layers with cone first, and prepare_lakes uses it", {
+  skip_if_not_installed("interp")
+  lk <- .test_square_lake(200)
+  a <- generate_lake_bathymetry(lk, method = "all", max_depth = 3)
+  expect_equal(names(a), c("cone", "powerlaw", "tin", "shoreline"))
+  dem <- terra::rast(terra::ext(a), res = 30, crs = terra::crs(a), vals = 60)
+  expect_equal(prepare_lakes(a, dem, lakes = lk, id_col = "lake_id")$max_depth, 3, tolerance = 0.01)
+})

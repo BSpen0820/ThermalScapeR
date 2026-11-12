@@ -33,7 +33,8 @@ Hollister et al. (2011) maximum-depth estimate.}
 \item{max_depth}{Optional maximum depth (m) for lakes without a
 \code{max_depth} column value. Default \code{NULL}.}
 
-\item{alpha}{Power-law exponent for \code{method = "powerlaw"}.}
+\item{alpha}{Power-law exponent for \code{method = "powerlaw"} (and the
+\code{powerlaw} layer of \code{"all"}). Default 0.6.}
 
 \item{slope_quantile}{Quantile of surrounding slope used by the Hollister
 estimate. Default 0.5 (median).}
@@ -47,7 +48,8 @@ correction factor). Default 1.}
 \item{out_file}{Optional file path; if given the raster is written there.}
 }
 \value{
-Invisibly, a single-layer \code{SpatRaster} named \code{depth},
+Invisibly, a single-layer \code{SpatRaster} named \code{depth}
+(four named layers for \code{method = "all"}),
 with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
 and \code{zmax_source} (\code{"column"}, \code{"argument"} or
 \code{"hollister2011"}).
@@ -97,6 +99,23 @@ the literature): \eqn{z = z_{max}(1 - e^{-kD})} with
 \code{ref_dist}, \code{ref_depth} and \code{max_depth} columns override
 the arguments; \code{max_depth = NULL} means 4.572 m (15 ft). Use this
 to reproduce earlier results.}
+}
+
+Sensitivity variants (basin-shape alternatives for checking that results
+are robust to the assumed shape; not taken from the cited literature):
+\describe{
+\item{\code{"powerlaw"}}{\eqn{z = Z_{max} (D / D_{max})^\alpha}.
+\eqn{\alpha = 1} is the cone; \eqn{\alpha < 1} gives steep sides and a
+broad deep basin, \eqn{\alpha > 1} a shallow shelf and a narrow deep
+centre. A per-lake \code{alpha} column overrides the argument.}
+\item{\code{"tin"}}{Linear Delaunay (TIN) interpolation
+(\code{interp::interp()}) through shoreline vertices densified every
+\code{res} m at depth 0 and the pole of inaccessibility at
+\eqn{Z_{max}}. Requires the \code{interp} package.}
+\item{\code{"all"}}{A four-layer raster named \code{cone},
+\code{powerlaw}, \code{tin}, \code{shoreline}. The cone is layer 1, so
+\code{\link{prepare_lakes}} (which reads layer 1) uses the published
+method unless a layer is selected, e.g. \code{x[["tin"]]}.}
 }
 
 The result follows the bathymetry convention used by

@@ -36,6 +36,28 @@
 
 .bathy_cone <- function(d, dmax, zmax) zmax * d / dmax
 
+.bathy_powerlaw <- function(d, dmax, zmax, alpha) zmax * (d / dmax)^alpha
+
+.bathy_tin <- function(geom, d, dmax, zmax, res) {
+  if (!requireNamespace("interp", quietly = TRUE))
+    stop("method 'tin' requires the 'interp' package: install.packages('interp')")
+  shore <- sf::st_segmentize(sf::st_cast(sf::st_union(geom), "MULTILINESTRING"), res)
+  bnd   <- unique(sf::st_coordinates(shore)[, 1:2, drop = FALSE])
+  dv    <- terra::values(d, mat = FALSE)
+  pole  <- terra::xyFromCell(d, which.max(dv))
+  cells <- which(!is.na(dv))
+  xy    <- terra::xyFromCell(d, cells)
+  zi <- interp::interp(x = c(bnd[, 1], pole[1]), y = c(bnd[, 2], pole[2]),
+                       z = c(rep(0, nrow(bnd)), zmax),
+                       xo = xy[, 1], yo = xy[, 2], output = "points", linear = TRUE)$z
+  zi[is.na(zi)] <- 0
+  vals <- rep(NA_real_, length(dv))
+  vals[cells] <- pmin(pmax(zi, 0), zmax)
+  out <- terra::rast(d)
+  terra::values(out) <- vals
+  out
+}
+
 .lake_zmax <- function(i, lakes, ids, max_depth, dem, dmax, slope_quantile, correct_factor) {
   col <- if ("max_depth" %in% names(lakes)) as.numeric(lakes$max_depth[i]) else NA_real_
   if (!is.na(col)) return(list(zmax = col, source = "column"))
@@ -131,6 +153,23 @@
 #'     to reproduce earlier results.}
 #' }
 #'
+#' Sensitivity variants (basin-shape alternatives for checking that results
+#' are robust to the assumed shape; not taken from the cited literature):
+#' \describe{
+#'   \item{\code{"powerlaw"}}{\eqn{z = Z_{max} (D / D_{max})^\alpha}.
+#'     \eqn{\alpha = 1} is the cone; \eqn{\alpha < 1} gives steep sides and a
+#'     broad deep basin, \eqn{\alpha > 1} a shallow shelf and a narrow deep
+#'     centre. A per-lake \code{alpha} column overrides the argument.}
+#'   \item{\code{"tin"}}{Linear Delaunay (TIN) interpolation
+#'     (\code{interp::interp()}) through shoreline vertices densified every
+#'     \code{res} m at depth 0 and the pole of inaccessibility at
+#'     \eqn{Z_{max}}. Requires the \code{interp} package.}
+#'   \item{\code{"all"}}{A four-layer raster named \code{cone},
+#'     \code{powerlaw}, \code{tin}, \code{shoreline}. The cone is layer 1, so
+#'     \code{\link{prepare_lakes}} (which reads layer 1) uses the published
+#'     method unless a layer is selected, e.g. \code{x[["tin"]]}.}
+#' }
+#'
 #' The result follows the bathymetry convention used by
 #' \code{\link{prepare_lakes}}: positive values are water depth in metres,
 #' \code{NA} outside lakes, interchangeable with a surveyed bathymetry raster.
@@ -162,7 +201,8 @@
 #' @param res Numeric. Output resolution in metres. Default 1.
 #' @param max_depth Optional maximum depth (m) for lakes without a
 #'   \code{max_depth} column value. Default \code{NULL}.
-#' @param alpha Power-law exponent for \code{method = "powerlaw"}.
+#' @param alpha Power-law exponent for \code{method = "powerlaw"} (and the
+#'   \code{powerlaw} layer of \code{"all"}). Default 0.6.
 #' @param slope_quantile Quantile of surrounding slope used by the Hollister
 #'   estimate. Default 0.5 (median).
 #' @param correct_factor Multiplier on the Hollister estimate (regional
@@ -171,7 +211,8 @@
 #'   \code{ref_depth} (m) at \code{ref_dist} (m) from shore. Defaults 5 and 1.
 #' @param out_file Optional file path; if given the raster is written there.
 #'
-#' @return Invisibly, a single-layer \code{SpatRaster} named \code{depth},
+#' @return Invisibly, a single-layer \code{SpatRaster} named \code{depth}
+#'   (four named layers for \code{method = "all"}),
 #'   with \code{attr(x, "zmax")} a data.frame of \code{lake_id}, \code{zmax}
 #'   and \code{zmax_source} (\code{"column"}, \code{"argument"} or
 #'   \code{"hollister2011"}).
@@ -191,7 +232,8 @@ generate_lake_bathymetry <- function(lakes,
   if (!inherits(lakes, "sf")) stop("lakes must be an sf polygon object")
   .stop_if_longlat(lakes, "lakes")
   method <- match.arg(method)
-  if (method %in% c("powerlaw", "tin", "all")) stop(sprintf("method '%s' not yet implemented", method))
+  if (method %in% c("tin", "all") && !requireNamespace("interp", quietly = TRUE))
+    stop(sprintf("method '%s' requires the 'interp' package: install.packages('interp')", method))
 
   n   <- nrow(lakes)
   ids <- if ("lake_id" %in% names(lakes)) as.character(lakes$lake_id) else sprintf("lake_%03d", seq_len(n))
@@ -205,7 +247,9 @@ generate_lake_bathymetry <- function(lakes,
     }
   }
 
-  if (method == "shoreline") {
+  al <- pick("alpha", alpha)
+
+  if (method %in% c("shoreline", "all")) {
     rd  <- pick("ref_dist", ref_dist)
     rp  <- pick("ref_depth", ref_depth)
     md0 <- if (is.null(max_depth)) 4.572 else max_depth
@@ -235,11 +279,19 @@ generate_lake_bathymetry <- function(lakes,
     zm <- .lake_zmax(i, lakes, ids, max_depth, dem, ld$dmax, slope_quantile, correct_factor)
     zinfo$zmax[i]        <- zm$zmax
     zinfo$zmax_source[i] <- zm$source
-    rs[[i]] <- .bathy_cone(ld$d, ld$dmax, zm$zmax)
+    geom <- sf::st_geometry(lakes[i, ])
+    rs[[i]] <- switch(method,
+      cone     = .bathy_cone(ld$d, ld$dmax, zm$zmax),
+      powerlaw = .bathy_powerlaw(ld$d, ld$dmax, zm$zmax, al[i]),
+      tin      = .bathy_tin(geom, ld$d, ld$dmax, zm$zmax, res),
+      all      = c(.bathy_cone(ld$d, ld$dmax, zm$zmax),
+                   .bathy_powerlaw(ld$d, ld$dmax, zm$zmax, al[i]),
+                   .bathy_tin(geom, ld$d, ld$dmax, zm$zmax, res),
+                   .bathy_shoreline(ld$d, rd[i], rp[i], md[i])))
   }
 
   out <- if (n == 1) rs[[1]] else terra::merge(terra::sprc(rs))
-  names(out) <- "depth"
+  names(out) <- if (method == "all") c("cone", "powerlaw", "tin", "shoreline") else "depth"
 
   if (!is.null(out_file)) terra::writeRaster(out, out_file, overwrite = TRUE)
   attr(out, "zmax") <- zinfo
