@@ -256,3 +256,36 @@ NULL
 #'   the legs; fraction mode, 0.3 of the core-to-ground gradient, minimum
 #'   2.5 C, legs allowed to warm back toward core when hot).
 "endotherm_species_presets"
+
+#' LANDFIRE EVT to CORINE Land Cover Crosswalk
+#'
+#' Lookup table mapping every LANDFIRE 2025 (LF 2.5) Existing Vegetation Type
+#' (EVT) class to a CORINE Land Cover (CLC) level-3 class. Used by
+#' \code{\link{LandfireEVT_2_CORINE}}. Built by
+#' \code{data-raw/landfire_evt_corine.R} from the LANDFIRE EVT attribute table
+#' using rules on \code{EVT_PHYS}, \code{EVT_LF}, \code{EVT_GP_N},
+#' \code{EVT_SBCLS} and \code{EVT_NAME} keywords. The mapping is approximate:
+#' CORINE is a European scheme (see the caveats in
+#' \code{\link{LandfireEVT_2_CORINE}}).
+#'
+#' @format A data frame with one row per EVT class (1069 rows, including
+#'   Fill-NoData) and 12 columns:
+#' \describe{
+#'   \item{VALUE}{LANDFIRE EVT raster value (-9999 = Fill-NoData)}
+#'   \item{EVT_NAME}{EVT class name}
+#'   \item{EVT_PHYS}{EVT physiognomy (Conifer, Hardwood, Shrubland, Riparian, ...)}
+#'   \item{EVT_LF}{EVT lifeform (Tree, Shrub, Herb, Sparse, ...)}
+#'   \item{EVT_GP_N}{EVT group name}
+#'   \item{EVT_SBCLS}{EVT subclass (leaf phenology / canopy structure)}
+#'   \item{clc_code}{CLC level-3 code (111-523; NA for Fill-NoData), as used by
+#'     \code{microclimdata}'s \code{corinetable}}
+#'   \item{grid_code}{CLC raster GRID_CODE index (1-44) of \code{clc_code}}
+#'   \item{clc_label}{CLC level-3 class label}
+#'   \item{rule}{Identifier of the crosswalk rule that assigned the class}
+#'   \item{rationale}{Short justification of the mapping}
+#'   \item{ambiguous}{TRUE where the mapping is a judgement call worth review}
+#' }
+#' @source LANDFIRE (2025). \emph{Existing Vegetation Type, LANDFIRE 2.5.0
+#'   (LF2025)}. U.S. Department of the Interior, Geological Survey; U.S.
+#'   Department of Agriculture, Forest Service. \url{https://www.landfire.gov}
+"landfire_evt_corine"
