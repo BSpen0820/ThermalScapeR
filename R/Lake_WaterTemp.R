@@ -304,3 +304,73 @@ prepare_lakes <- function(bathy,
   rownames(out) <- NULL
   out
 }
+
+.map_lakes_to_grid <- function(lakes, landcover, water_classes, max_match_dist = 60) {
+  lc    <- landcover[[1]]
+  lakes <- sf::st_transform(lakes, terra::crs(lc))
+  n     <- nrow(lakes)
+
+  water <- terra::values(lc, mat = FALSE) %in% water_classes
+
+  v      <- terra::vect(sf::st_geometry(lakes))
+  v$.row <- seq_len(n)
+  idx    <- terra::values(terra::rasterize(v, lc, field = ".row", touches = TRUE), mat = FALSE)
+  idx[!water] <- NA
+
+  un <- which(water & is.na(idx))
+  if (length(un) > 0) {
+    pts <- sf::st_as_sf(as.data.frame(terra::xyFromCell(lc, un)),
+                        coords = c("x", "y"), crs = sf::st_crs(lakes))
+    nf  <- sf::st_nearest_feature(pts, lakes)
+    dd  <- as.numeric(sf::st_distance(pts, lakes[nf, ], by_element = TRUE))
+    ok  <- dd <= max_match_dist
+    idx[un[ok]] <- nf[ok]
+    if (any(!ok))
+      warning(sprintf("%d water cell(s) farther than %g m from any modeled lake left NA",
+                      sum(!ok), max_match_dist))
+  }
+
+  counts <- tabulate(idx[!is.na(idx)], nbins = n)
+  for (i in which(counts == 0))
+    warning(sprintf("lake %s matched no landcover water cells; it will not appear in the raster",
+                    lakes$lake_id[i]))
+
+  out <- terra::rast(lc)
+  terra::values(out) <- as.integer(idx)
+  names(out) <- "lake_index"
+  out
+}
+
+.write_watertemp_nc <- function(lake_idx, ens, out_path) {
+  tm <- ens[[1]]$datetime
+  for (e in ens)
+    if (!identical(as.numeric(e$datetime), as.numeric(tm)))
+      stop("all lakes must share the same hourly time axis")
+
+  v  <- terra::values(lake_idx, mat = FALSE)
+  mt <- do.call(rbind, lapply(ens, function(e) e$water_temp))
+  mi <- do.call(rbind, lapply(ens, function(e) e$ice_frac))
+
+  fill <- function(m) {
+    r <- terra::rast(lake_idx, nlyrs = length(tm))
+    terra::values(r) <- m[v, , drop = FALSE]
+    terra::time(r) <- tm
+    r
+  }
+  wt <- fill(mt)
+  ic <- fill(mi)
+
+  dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
+  ds <- terra::sds(wt, ic)
+  names(ds) <- c("water_temp", "ice_frac")
+  terra::longnames(ds) <- c("Ensemble-mean near-surface water temperature",
+                            "Fraction of ensemble models with ice cover")
+  terra::units(ds) <- c("degC", "1")
+  terra::writeCDF(ds, out_path,
+                  varname  = c("water_temp", "ice_frac"),
+                  longname = c("Ensemble-mean near-surface water temperature",
+                               "Fraction of ensemble models with ice cover"),
+                  unit     = c("degC", "1"),
+                  overwrite = TRUE)
+  invisible(out_path)
+}
