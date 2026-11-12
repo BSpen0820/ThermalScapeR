@@ -374,3 +374,213 @@ prepare_lakes <- function(bathy,
                   overwrite = TRUE)
   invisible(out_path)
 }
+
+.ensemble_lake <- function(model_out, start, stop) {
+  if (length(model_out) == 0) stop("all models failed; no ensemble can be formed")
+  tg  <- seq(start, stop, by = 3600)
+  out <- data.frame(datetime = tg)
+  for (m in names(model_out)) {
+    d  <- model_out[[m]]
+    ix <- match(as.numeric(tg), as.numeric(d$datetime))
+    if (anyNA(ix))
+      stop(sprintf("model %s output does not cover %s to %s", m, .fmt_hour(start), .fmt_hour(stop)))
+    out[[sprintf("%s_temp", m)]] <- d$temp[ix]
+    out[[sprintf("%s_ice", m)]]  <- d$ice_height[ix]
+  }
+  tcols <- sprintf("%s_temp", names(model_out))
+  icols <- sprintf("%s_ice", names(model_out))
+  out$water_temp <- rowMeans(out[tcols], na.rm = TRUE)
+  out$ice_frac   <- rowMeans(out[icols] > 0, na.rm = TRUE)
+  out[, c("datetime", "water_temp", "ice_frac", as.vector(rbind(tcols, icols)))]
+}
+
+.ler_require <- function() {
+  if (!requireNamespace("LakeEnsemblR", quietly = TRUE))
+    stop(paste0(
+      "LakeEnsemblR is required for lake water temperature modeling. Install with:\n",
+      "  remotes::install_github('GLEON/rLakeAnalyzer')\n",
+      "  remotes::install_github('aemon-j/GLM3r', ref = 'v3.1.1')\n",
+      "  remotes::install_github('USGS-R/glmtools', ref = 'ggplot_overhaul')\n",
+      "  remotes::install_github('aemon-j/FLakeR', ref = 'inflow')\n",
+      "  remotes::install_github('aemon-j/GOTMr'); remotes::install_github('aemon-j/gotmtools')\n",
+      "  remotes::install_github('aemon-j/SimstratR'); remotes::install_github('aemon-j/MyLakeR')\n",
+      "  remotes::install_github('aemon-j/LakeEnsemblR')"))
+  invisible(TRUE)
+}
+
+.ler_write_yaml <- function(path, lake, start, stop, Kw) {
+  fmt <- function(x) format(x, "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  txt <- c(
+    "location:",
+    sprintf("   name: %s", lake$lake_id),
+    sprintf("   latitude: %.6f", lake$lat),
+    sprintf("   longitude: %.6f", lake$lon),
+    sprintf("   elevation: %.2f", lake$elevation),
+    sprintf("   depth: %.4f", lake$model_depth),
+    "   hypsograph: LakeEnsemblR_bathymetry_standard.csv",
+    sprintf("   init_depth: %.4f", lake$model_depth),
+    "time:",
+    sprintf("   start: %s", fmt(start)),
+    sprintf("   stop: %s", fmt(stop)),
+    "   time_step: 3600.0",
+    "config_files:",
+    "   GOTM: GOTM/gotm.yaml",
+    "   GLM: GLM/glm3.nml",
+    "   Simstrat: Simstrat/simstrat.par",
+    "   FLake: FLake/flake.nml",
+    "   MyLake: MyLake/mylake.Rdata",
+    "observations:",
+    "   temperature:",
+    "      file: NULL",
+    "   ice_height:",
+    "      file: NULL",
+    "   water_level:",
+    "      file: NULL",
+    "input:",
+    "   init_temp_profile:",
+    "      file: LakeEnsemblR_init_temp_profile.csv",
+    "   meteo:",
+    "      file: LakeEnsemblR_meteo_standard.csv",
+    "   light:",
+    "      Kw:",
+    sprintf("         all: %.4f", Kw),
+    "   ice:",
+    "      use: true",
+    "inflows:",
+    "   use: false",
+    "   file: NULL",
+    "   number_inflows: 0",
+    "   fix_wlvl: false",
+    "outflows:",
+    "   use: false",
+    "   file: NULL",
+    "   number_outflows: 0",
+    "   outflow_lvl: -1",
+    "output:",
+    "   file: ensemble_output",
+    "   format: netcdf",
+    sprintf("   depths: %.4f", lake$out_depth),
+    "   compression: 4",
+    "   max_members: 25",
+    "   time_unit: hour",
+    "   time_step: 1",
+    "   time_method: mean",
+    "   variables:",
+    "      - temp",
+    "      - ice_height",
+    "scaling_factors:",
+    "   all:",
+    "      wind_speed: 1.0",
+    "      swr: 1.0",
+    "model_parameters:",
+    "   FLake:",
+    sprintf("      fetch_lk: %.2f", lake$fetch),
+    "   GLM:",
+    sprintf("      bsn_len: %.2f", lake$bsn_len),
+    sprintf("      bsn_wid: %.2f", lake$bsn_wid),
+    "   GOTM:",
+    "      k_min: 3.6E-6",
+    "   Simstrat:",
+    "   MyLake:"
+  )
+  writeLines(txt, path)
+  invisible(path)
+}
+
+.ler_set_ice_init <- function(model, ice_init) {
+  if (ice_init <= 0) return(invisible(FALSE))
+  if (model == "GOTM") {
+    f <- file.path("GOTM", "gotm.yaml")
+    y <- readLines(f, warn = FALSE)
+    i <- grep("^[[:space:]]*ice:", y)[1]
+    j <- i + grep("^[[:space:]]*H:", y[(i + 1):length(y)])[1]
+    y[j] <- sub("H:[[:space:]]*[-0-9.eE+]+", sprintf("H: %.4f", ice_init), y[j])
+    writeLines(y, f)
+    return(invisible(TRUE))
+  }
+  if (model == "GLM") {
+    f <- file.path("GLM", "glm3.nml")
+    y <- readLines(f, warn = FALSE)
+    i <- grep("^[[:space:]]*&init_profiles", y)[1]
+    y <- append(y, sprintf("   blue_ice_thickness = %.4f", ice_init), after = i)
+    writeLines(y, f)
+    return(invisible(TRUE))
+  }
+  warning(sprintf("ice_init is not supported for %s; it starts ice-free", model))
+  invisible(FALSE)
+}
+
+.ler_run_one <- function(wd, lake, meteo, start, stop, model, Kw, init_temp, ice_init) {
+  old <- setwd(wd)
+  on.exit(setwd(old), add = TRUE)
+
+  met <- meteo
+  met$datetime <- format(met$datetime, "%Y-%m-%d %H:%M:%S", tz = "UTC")
+  utils::write.csv(met, "LakeEnsemblR_meteo_standard.csv", row.names = FALSE, quote = FALSE)
+  utils::write.csv(lake$hypsograph[[1]], "LakeEnsemblR_bathymetry_standard.csv",
+                   row.names = FALSE, quote = FALSE)
+  zs <- unique(c(seq(0, lake$model_depth, length.out = 5)))
+  utils::write.csv(data.frame(Depth_meter = zs, Water_Temperature_celsius = init_temp),
+                   "LakeEnsemblR_init_temp_profile.csv", row.names = FALSE, quote = FALSE)
+  .ler_write_yaml("LakeEnsemblR.yaml", lake, start, stop, Kw)
+
+  utils::capture.output({
+    LakeEnsemblR::export_config("LakeEnsemblR.yaml", model = model)
+    .ler_set_ice_init(model, ice_init)
+    LakeEnsemblR::run_ensemble("LakeEnsemblR.yaml", model = model)
+  })
+
+  nc  <- file.path("output", "ensemble_output.nc")
+  tl  <- LakeEnsemblR::load_var(nc, "temp", return = "list", print = FALSE)[[model]]
+  il  <- LakeEnsemblR::load_var(nc, "ice_height", return = "list", print = FALSE)[[model]]
+  if (is.null(tl)) stop(sprintf("no temperature output from %s", model))
+
+  zc  <- grep("^wtr_", names(tl), value = TRUE)
+  zv  <- as.numeric(sub("^wtr_", "", zc))
+  col <- zc[which.min(abs(zv - lake$out_depth))]
+  dt  <- as.POSIXct(format(tl$datetime, "%Y-%m-%d %H:%M:%S"), tz = "UTC")
+  ice <- if (is.null(il)) rep(0, nrow(tl)) else as.numeric(il$ice_height)
+
+  # Models leave the first output step NA; MyLake reports daily only, so its
+  # values are interpolated to hours (no diurnal cycle).
+  gap <- if (model == "MyLake") 24 else 3
+  if (model == "MyLake")
+    warning("MyLake reports daily values; interpolated to hourly without a diurnal cycle")
+  edge_fill <- function(x) zoo::na.approx(x, maxgap = gap, rule = 2, na.rm = FALSE)
+  temp <- edge_fill(as.numeric(tl[[col]]))
+  ice  <- edge_fill(ice)
+  ice[is.na(ice)] <- 0
+
+  data.frame(datetime = dt, temp = temp, ice_height = ice)
+}
+
+.ler_run_lake <- function(lake, meteo, start, stop, models, Kw,
+                          init_temp = 4, ice_init = 0, run_dir) {
+  .ler_require()
+  # LakeEnsemblR's netCDF writer looks up its lazy-loaded `lake_var_dic`
+  # dataset unqualified, which only resolves when the package is attached.
+  if (!"package:LakeEnsemblR" %in% search()) {
+    attachNamespace("LakeEnsemblR")
+    on.exit(detach("package:LakeEnsemblR", character.only = TRUE), add = TRUE)
+  }
+  # Some models (e.g. Simstrat) stop writing output a day before `stop`.
+  # Run one extra day on repeated final-day forcing, then trim it off.
+  pad <- utils::tail(meteo, 24)
+  pad$datetime <- pad$datetime + 86400
+  met_pad  <- rbind(meteo, pad)
+  stop_pad <- stop + 86400
+
+  res  <- list()
+  for (m in models) {
+    wd <- file.path(run_dir, lake$lake_id, m)
+    dir.create(wd, recursive = TRUE, showWarnings = FALSE)
+    out <- tryCatch(
+      .ler_run_one(wd, lake, met_pad, start, stop_pad, m, Kw, init_temp, ice_init),
+      error = function(e) {
+        warning(sprintf("model %s failed for lake %s: %s", m, lake$lake_id, conditionMessage(e)))
+        NULL
+      })
+    if (!is.null(out)) res[[m]] <- out[out$datetime >= start & out$datetime <= stop, , drop = FALSE]
+  }
+  res
+}

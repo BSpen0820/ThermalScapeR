@@ -37,12 +37,14 @@ Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.2.0),
-    withr
+    withr,
+    LakeEnsemblR
 VignetteBuilder: knitr
 Config/testthat/edition: 3
 Remotes:
     ilyamaclean/microclimdata,
-    BSpen0820/microclimfPara
+    BSpen0820/microclimfPara,
+    aemon-j/LakeEnsemblR
 Depends: 
     R (>= 3.5)
 LazyData: true
