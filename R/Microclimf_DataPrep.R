@@ -3179,6 +3179,10 @@ package_veg_soil <- function(dates,
           if (!(y %in% lc_df$year)) stop(sprintf("Land cover file not found for year %d", y))
         }
         lc_match <- lc_df$file[lc_df$year == first_year]
+        if (length(lc_match) != 1) {
+          stop(sprintf("Expected 1 land cover file for year %d, found %d:\n  %s",
+                       first_year, length(lc_match), paste(basename(lc_match), collapse = "\n  ")))
+        }
         lc <- terra::rast(lc_match)
       }
 
@@ -3192,7 +3196,20 @@ package_veg_soil <- function(dates,
           if (!(y %in% vh_df$year)) stop(sprintf("Vegetation height file not found for year %d", y))
         }
         vh_match <- vh_df$file[vh_df$year == first_year]
+        if (length(vh_match) != 1) {
+          stop(sprintf("Expected 1 vegetation height file for year %d, found %d:\n  %s",
+                       first_year, length(vh_match), paste(basename(vh_match), collapse = "\n  ")))
+        }
         vght <- terra::rast(vh_match)
+      }
+
+      # create_veggrid()'s C++ clumping routine segfaults (crashing R) when
+      # vhgt has a different layer count from lai, so check here first.
+      if (terra::nlyr(vght) != 1) {
+        stop(sprintf("Vegetation height must be a single-layer raster; got %d layers", terra::nlyr(vght)))
+      }
+      if (terra::nlyr(lc) != 1) {
+        stop(sprintf("Land cover must be a single-layer raster; got %d layers", terra::nlyr(lc)))
       }
 
       # Load LAI files for all months in the period
@@ -3310,26 +3327,45 @@ package_veg_soil <- function(dates,
       # --- Create vegetation parameter grid ---
       cat("  Building vegetation parameter grids...\n")
 
-      vegp.list <- lapply(seq_len(terra::nlyr(lai_rs)), function(x) {
-        microclimdata::create_veggrid(
+      # Only pai and clump vary by month; the other layers come from month 1.
+      # Keeping every month's full vegparams list in memory needs ~8 layers x
+      # ncell x 8 bytes x n_months (~11 GB for a 14.6 M-cell, 12-month period)
+      # and ran out of memory, so each month's pai/clump is staged in a temp
+      # file (FLT8S, lossless) and the monthly stacks are assembled at the end.
+      n_months  <- terra::nlyr(lai_rs)
+      stage_dir <- tempfile("vegp_stage_")
+      dir.create(stage_dir)
+      on.exit(unlink(stage_dir, recursive = TRUE), add = TRUE)
+      pai_files   <- file.path(stage_dir, sprintf("pai_%02d.tif",   seq_len(n_months)))
+      clump_files <- file.path(stage_dir, sprintf("clump_%02d.tif", seq_len(n_months)))
+
+      vegp <- NULL
+      for (x in seq_len(n_months)) {
+        vp <- microclimdata::create_veggrid(
           landcover = lc_rs,
           vhgt      = vght_rs,
           lai       = lai_rs[[x]],
           refldata  = refldata_rs,
           lctype    = lctype
         )
-      })
-
-      vegp <- vegp.list[[1]]
-
-      if (terra::nlyr(lai_rs) > 1) {
-        for (j in 2:terra::nlyr(lai_rs)) {
-          pai   <- vegp.list[[j]]$pai
-          clump <- vegp.list[[j]]$clump
-          vegp$pai   <- terra::wrap(c(terra::unwrap(vegp$pai),   terra::unwrap(pai)))
-          vegp$clump <- terra::wrap(c(terra::unwrap(vegp$clump), terra::unwrap(clump)))
-        }
+        terra::writeRaster(terra::unwrap(vp$pai),   pai_files[x],   datatype = "FLT8S", overwrite = TRUE)
+        terra::writeRaster(terra::unwrap(vp$clump), clump_files[x], datatype = "FLT8S", overwrite = TRUE)
+        if (x == 1) vegp <- vp
+        rm(vp)
+        gc()
       }
+
+      # toMemory() so wrap() packs the values, not paths to the temp files;
+      # layer names match create_veggrid()'s (same as the old c() stacking)
+      pai_stk <- terra::toMemory(terra::rast(pai_files))
+      names(pai_stk) <- rep("Plant area index", n_months)
+      vegp$pai <- terra::wrap(pai_stk)
+      rm(pai_stk); gc()
+      clump_stk <- terra::toMemory(terra::rast(clump_files))
+      names(clump_stk) <- rep("Clumping coefficient", n_months)
+      vegp$clump <- terra::wrap(clump_stk)
+      rm(clump_stk)
+      unlink(stage_dir, recursive = TRUE)
 
       gc()
 
