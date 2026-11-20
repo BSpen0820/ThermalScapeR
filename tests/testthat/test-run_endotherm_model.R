@@ -128,3 +128,31 @@ test_that("init_wine_prefix stops when xvfb-run is unavailable but headless = TR
   )
   expect_error(init_wine_prefix(tempfile("prefix_"), headless = TRUE), "xvfb-run")
 })
+
+test_that("a native run leaves endo.dat intact and the exe reads it as ENDO.DAT", {
+  skip_on_os("windows")
+  ws <- file.path(tempfile("endo native ws "), "work dir")
+  dir.create(ws, recursive = TRUE)
+  on.exit(unlink(dirname(ws), recursive = TRUE))
+  writeLines("endo contents", file.path(ws, "endo.dat"))
+
+  res <- run_endotherm_model(ws, exe_path = .endo_fake_native_exe(ws))
+
+  expect_true(res$success)
+  expect_identical(readLines(file.path(ws, "endo.dat")), "endo contents")
+  expect_identical(readLines(file.path(ws, "seen_ENDO.DAT")), "endo contents")
+})
+
+test_that("a stale ENDO.DAT on a case-sensitive filesystem is refreshed", {
+  skip_on_os("windows")
+  ws <- tempfile("endo_ws_")
+  dir.create(ws)
+  on.exit(unlink(ws, recursive = TRUE))
+  writeLines("new", file.path(ws, "endo.dat"))
+  writeLines("stale", file.path(ws, "ENDO.DAT"))
+  skip_if(length(list.files(ws)) < 2L, "temp filesystem is case-insensitive")
+
+  res <- run_endotherm_model(ws, exe_path = .endo_fake_native_exe(ws))
+
+  expect_identical(readLines(file.path(ws, "seen_ENDO.DAT")), "new")
+})

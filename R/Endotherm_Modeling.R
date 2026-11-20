@@ -271,8 +271,12 @@ run_endotherm_model <- function(workspace_dir, exe_path,
   setwd(workspace_dir)
 
   if (.endo_is_native(exe_path, sysname)) {
-    # the Fortran opens ENDO.DAT by name: Windows ignores case, Linux/macOS do not
-    if (!identical(sysname, "Windows") && file.exists("endo.dat")) file.copy("endo.dat", "ENDO.DAT", overwrite = TRUE)
+    # the Fortran opens ENDO.DAT by name: Windows ignores case, Linux does not. On a
+    # case-insensitive disk (macOS default) ENDO.DAT already is endo.dat, and copying
+    # a file onto itself with overwrite = TRUE truncates it to 0 bytes
+    same_file <- file.exists("ENDO.DAT") && !"ENDO.DAT" %in% list.files()
+    if (!identical(sysname, "Windows") && file.exists("endo.dat") && !same_file)
+      file.copy("endo.dat", "ENDO.DAT", overwrite = TRUE)
     exe_output <- system2(exe_path, input = c("alomvars.dat", "endo.dat"), stdout = TRUE, stderr = TRUE,
                            timeout = timeout)
     status <- attr(exe_output, "status")
