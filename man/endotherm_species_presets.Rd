@@ -41,6 +41,22 @@ set \code{metabolic_rate} to their 18.8 kJ kg^-0.75 h^-1 (500 W at
 core-temperature reduction switched on (countercurrent heat exchange in
 the legs; fraction mode, 0.3 of the core-to-ground gradient, minimum
 2.5 C, legs allowed to warm back toward core when hot).
+\code{"Female Shiras Moose - Summer"} inherits from the bighorn and is
+ported from a colleague's summer-pelt Shiras moose
+\code{endo.dat}/\code{alomvars.dat} (allometry after Verzuh et al. 2022).
+That run modeled only a lying moose with the legs lumped into the torso,
+so its leg fur copied the torso fur; the leg hair lengths and fur depths
+here are instead Alaskan moose summer means (Bryan Spencer, moose hair
+samples; mm, dorsal = outside / ventral = inside): hair length
+11.33/9.87, fur depth 4.29/3.52, and in \code{alomvars.dat} the adjusted
+(not reference, so body dimensions are unchanged) leg fur depths front
+4.09/3.89, rear 4.50/3.14. Leg hair diameter, density and reflectivity
+keep the ported values. The ported file's time-varying torso hair length
+(67.5 mm, the hair diameter) is replaced by its torso hair length
+(41.8 mm). Activity is switched from never-active to nocturnal and
+crepuscular (inactive, lying, during the day). Substrate conduction, on
+in the ported file, is switched off (reported broken by the model's
+authors).
 }
 \usage{
 endotherm_species_presets

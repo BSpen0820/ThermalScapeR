@@ -55,7 +55,30 @@ test_that("species matching is case-insensitive", {
 })
 
 test_that("list_endotherm_species returns the built-in species", {
-  expect_identical(list_endotherm_species(), c("Female Bighorn - Winter", "Female Alaskan Moose - Winter"))
+  expect_identical(list_endotherm_species(), c("Female Bighorn - Winter", "Female Alaskan Moose - Winter",
+                                               "Female Shiras Moose - Summer"))
+})
+
+test_that("the Shiras moose preset resolves to the ported values with Alaskan summer legs", {
+  d <- get_endotherm_defaults("Female Shiras Moose - Summer", julnum = 52, juldays = seq(8, 365, by = 7))
+  expect_identical(d$animal$body_mass, 297)
+  expect_identical(d$animal$metabolic_rate, 235.9)
+  expect_identical(d$fur$parts$torso$hair_length_dorsal, 41.8)
+  expect_identical(d$fur$parts$leg$hair_length_dorsal, 11.33)
+  expect_identical(d$fur$parts$leg$hair_length_ventral, 9.87)
+  expect_identical(d$fur$parts$leg$fur_depth_dorsal, 4.29)
+  expect_identical(d$fur$parts$leg$fur_depth_ventral, 3.52)
+  expect_identical(d$allometry$parts$front_leg$fur_depth_dorsal_reference, 9.32)
+  expect_identical(d$allometry$parts$front_leg$fur_depth_dorsal_adjusted, 4.09)
+  expect_identical(d$allometry$parts$rear_leg$fur_depth_ventral_adjusted, 3.14)
+  expect_identical(d$allometry$absolute_measurement_cm, 160)
+  expect_identical(unique(d$diet$diurnal_enabled), "N")
+  expect_identical(unique(c(d$diet$nocturnal_enabled, d$diet$crepuscular_enabled)), "Y")
+  expect_identical(d$thermoreg$huddle_enabled, "N")
+  tmp <- tempfile("endo_shiras_"); dir.create(tmp)
+  on.exit(unlink(tmp, recursive = TRUE))
+  do.call(write_endotherm_inputs, c(list(output_dir = tmp), d))
+  expect_true(any(grepl("Animal species = Female Shiras Moose", readLines(file.path(tmp, "endo.dat")))))
 })
 
 test_that("the Alaskan moose preset resolves to the AlaskaEndoAlom values and writes valid files", {
