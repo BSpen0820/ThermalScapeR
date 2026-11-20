@@ -185,3 +185,16 @@ test_that("a native exe without execute permission fails with an explanation", {
   expect_false(res$success)
   expect_match(res$message, "exit status 12[67]|[Pp]ermission denied")
 })
+
+test_that("the metabolic chamber runs end-to-end on a native Endotherm build", {
+  skip_on_os("windows")
+  exe <- Sys.getenv("THERMALSCAPER_ENDO_NATIVE_EXE")
+  skip_if(!nzchar(exe) || !file.exists(exe), "THERMALSCAPER_ENDO_NATIVE_EXE not set")
+  species <- intersect(c("Female Bighorn - Winter", "Female Shiras Moose - Summer"),
+                       list_endotherm_species())
+  for (sp in species) {
+    r <- run_metabolic_chamber(get_endotherm_defaults(sp, julnum = 12), exe_path = exe)
+    expect_true(all(r$log$success), info = sp)
+    expect_identical(nrow(r$log), 4L, info = sp)
+  }
+})
