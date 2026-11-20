@@ -54,7 +54,9 @@ guard against a hung exe never producing \code{ErrorMsgs.dat}.}
 \value{
 A list with elements \code{success} (logical) and \code{message}
 (character, the contents of \code{ErrorMsgs.dat} plus the process exit
-status, or a description of why the run could not be evaluated).
+status, or a description of why the run could not be evaluated). When a
+native run fails, \code{message} ends with \code{"console: "} and the last
+few lines the exe printed (e.g. a Fortran runtime error).
 }
 \description{
 Invokes the compiled Endotherm model exe, which must be pointed at by

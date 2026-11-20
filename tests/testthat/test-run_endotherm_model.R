@@ -156,3 +156,32 @@ test_that("a stale ENDO.DAT on a case-sensitive filesystem is refreshed", {
 
   expect_identical(readLines(file.path(ws, "seen_ENDO.DAT")), "new")
 })
+
+test_that("a failed native run reports the exe's console output", {
+  skip_on_os("windows")
+  ws <- tempfile("endo_ws_")
+  dir.create(ws)
+  on.exit(unlink(ws, recursive = TRUE))
+  writeLines(character(0), file.path(ws, "endo.dat"))
+
+  res <- run_endotherm_model(ws, exe_path = .endo_fake_native_exe(ws))
+
+  expect_false(res$success)
+  expect_match(res$message, "exit status 2")
+  expect_match(res$message, "console: .*Fortran runtime error: End of file")
+})
+
+test_that("a native exe without execute permission fails with an explanation", {
+  skip_on_os("windows")
+  ws <- tempfile("endo_ws_")
+  dir.create(ws)
+  on.exit(unlink(ws, recursive = TRUE))
+  writeLines("x", file.path(ws, "endo.dat"))
+  exe <- .endo_fake_native_exe(ws)
+  Sys.chmod(exe, "644")
+
+  res <- run_endotherm_model(ws, exe_path = exe)
+
+  expect_false(res$success)
+  expect_match(res$message, "exit status 12[67]|[Pp]ermission denied")
+})

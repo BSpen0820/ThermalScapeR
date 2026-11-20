@@ -239,7 +239,9 @@ cells_for_array_task <- function(valid_cell_indices, clust_array_arg = NULL, clu
 #'
 #' @return A list with elements \code{success} (logical) and \code{message}
 #'   (character, the contents of \code{ErrorMsgs.dat} plus the process exit
-#'   status, or a description of why the run could not be evaluated).
+#'   status, or a description of why the run could not be evaluated). When a
+#'   native run fails, \code{message} ends with \code{"console: "} and the last
+#'   few lines the exe printed (e.g. a Fortran runtime error).
 #'
 #' @details
 #' A Wine prefix that is booted once (via \code{\link{init_wine_prefix}}) and
@@ -270,6 +272,7 @@ run_endotherm_model <- function(workspace_dir, exe_path,
   on.exit(setwd(old_wd), add = TRUE)
   setwd(workspace_dir)
 
+  exe_output <- character(0)
   if (.endo_is_native(exe_path, sysname)) {
     # the Fortran opens ENDO.DAT by name: Windows ignores case, Linux does not. On a
     # case-insensitive disk (macOS default) ENDO.DAT already is endo.dat, and copying
@@ -277,8 +280,8 @@ run_endotherm_model <- function(workspace_dir, exe_path,
     same_file <- file.exists("ENDO.DAT") && !"ENDO.DAT" %in% list.files()
     if (!identical(sysname, "Windows") && file.exists("endo.dat") && !same_file)
       file.copy("endo.dat", "ENDO.DAT", overwrite = TRUE)
-    exe_output <- system2(exe_path, input = c("alomvars.dat", "endo.dat"), stdout = TRUE, stderr = TRUE,
-                           timeout = timeout)
+    exe_output <- suppressWarnings(system2(exe_path, input = c("alomvars.dat", "endo.dat"),
+                                           stdout = TRUE, stderr = TRUE, timeout = timeout))
     status <- attr(exe_output, "status")
     if (is.null(status)) status <- 0L
   } else {
@@ -322,15 +325,25 @@ run_endotherm_model <- function(workspace_dir, exe_path,
     status <- suppressWarnings(system(command, timeout = timeout))
   }
 
+  console <- .endo_console_tail(exe_output)
   error_msgs_path <- file.path(workspace_dir, "ErrorMsgs.dat")
   if (!file.exists(error_msgs_path)) {
-    return(list(success = FALSE, message = sprintf("exit status %s; ErrorMsgs.dat was not produced", status)))
+    return(list(success = FALSE, message = paste0(
+      sprintf("exit status %s; ErrorMsgs.dat was not produced", status), console)))
   }
   error_msgs <- readLines(error_msgs_path, warn = FALSE)
+  success <- any(grepl("Calculations completed\\.", error_msgs))
   list(
-    success = any(grepl("Calculations completed\\.", error_msgs)),
-    message = paste(c(sprintf("exit status %s", status), error_msgs), collapse = " | ")
+    success = success,
+    message = paste0(paste(c(sprintf("exit status %s", status), error_msgs), collapse = " | "),
+                     if (success) "" else console)
   )
+}
+
+.endo_console_tail <- function(exe_output, n = 5L) {
+  lines <- trimws(exe_output[nzchar(trimws(exe_output))])
+  if (length(lines) == 0L) return("")
+  paste0(" | console: ", paste(utils::tail(lines, n), collapse = " | "))
 }
 
 # TRUE when the exe runs directly: on Windows, or a native build (no .exe) on any OS
