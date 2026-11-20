@@ -198,3 +198,19 @@ test_that("the metabolic chamber runs end-to-end on a native Endotherm build", {
     expect_identical(nrow(r$log), 4L, info = sp)
   }
 })
+
+test_that("a native run keeps endo.dat intact when the disk stores it as ENDO.DAT", {
+  skip_on_os("windows")
+  ws <- tempfile("endo_ws_")
+  dir.create(ws)
+  on.exit(unlink(ws, recursive = TRUE))
+  writeLines("old", file.path(ws, "ENDO.DAT"))
+  writeLines("new content", file.path(ws, "endo.dat"))
+  skip_if(length(list.files(ws)) > 1L, "temp filesystem is case-sensitive")
+
+  res <- run_endotherm_model(ws, exe_path = .endo_fake_native_exe(ws))
+
+  expect_true(res$success)
+  expect_identical(readLines(file.path(ws, "endo.dat")), "new content")
+  expect_identical(readLines(file.path(ws, "seen_ENDO.DAT")), "new content")
+})
