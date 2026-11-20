@@ -13,7 +13,7 @@ run_endo_big_nichemap(
   refl_dir,
   exe_path,
   output_dir,
-  wineprefix,
+  wineprefix = NULL,
   endo_inputs = get_endotherm_defaults(),
   time_varying = endo_timevar_template(),
   chunk_size = 52,
@@ -62,12 +62,13 @@ into this same location/substructure.}
 
 \item{output_dir}{Root output folder.}
 
-\item{wineprefix}{Character. Required on non-Windows - a single,
-already-initialized (via \code{\link{init_wine_prefix}}) shared Wine
-prefix path, reused unchanged across every tile/cell/chunk in this call.
-Must \strong{not} be left to default to \code{NULL} or a
-\code{tempdir()}-derived path - every parallel worker must share the
-same prefix. Ignored on Windows.}
+\item{wineprefix}{Character or \code{NULL} (default). Required only when
+\code{exe_path} is a \code{.exe} and not on Windows: a single shared Wine
+prefix path, initialized here via \code{\link{init_wine_prefix}} and
+reused unchanged across every tile/cell/chunk in this call. Must
+\strong{not} be a \code{tempdir()}-derived path - every parallel worker
+must share the same prefix. Ignored for a native build (an
+\code{exe_path} not ending in \code{.exe}) and on Windows.}
 
 \item{endo_inputs}{Named list in \code{\link{get_endotherm_defaults}}'s
 9-group shape - the animal model. Default \code{get_endotherm_defaults()}.

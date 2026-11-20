@@ -1594,12 +1594,13 @@ plot_endotherm_geometry <- function(ei, ref = NULL, main = "Endotherm body geome
 #'   \code{\link{compute_reflectance}} (\code{refl_dir/Gref/GF_Refl_*.tif}).
 #' @param exe_path Full path to the Endotherm model executable.
 #' @param output_dir Root output folder.
-#' @param wineprefix Character. Required on non-Windows - a single,
-#'   already-initialized (via \code{\link{init_wine_prefix}}) shared Wine
-#'   prefix path, reused unchanged across every tile/cell/chunk in this call.
-#'   Must \strong{not} be left to default to \code{NULL} or a
-#'   \code{tempdir()}-derived path - every parallel worker must share the
-#'   same prefix. Ignored on Windows.
+#' @param wineprefix Character or \code{NULL} (default). Required only when
+#'   \code{exe_path} is a \code{.exe} and not on Windows: a single shared Wine
+#'   prefix path, initialized here via \code{\link{init_wine_prefix}} and
+#'   reused unchanged across every tile/cell/chunk in this call. Must
+#'   \strong{not} be a \code{tempdir()}-derived path - every parallel worker
+#'   must share the same prefix. Ignored for a native build (an
+#'   \code{exe_path} not ending in \code{.exe}) and on Windows.
 #' @param endo_inputs Named list in \code{\link{get_endotherm_defaults}}'s
 #'   9-group shape - the animal model. Default \code{get_endotherm_defaults()}.
 #'   Its julnum-length fields not overridden via \code{time_varying}
@@ -1675,7 +1676,7 @@ plot_endotherm_geometry <- function(ei, ref = NULL, main = "Endotherm body geome
 #'   \code{\link{run_endotherm_model}}, \code{\link{init_wine_prefix}}
 #' @export
 run_endo_big_nichemap <- function(tile_map, valid_cells_mask, dates, microclim_dir,
-                                  dem, refl_dir, exe_path, output_dir, wineprefix,
+                                  dem, refl_dir, exe_path, output_dir, wineprefix = NULL,
                                   endo_inputs   = get_endotherm_defaults(),
                                   time_varying  = endo_timevar_template(),
                                   chunk_size    = 52,
@@ -1718,6 +1719,9 @@ run_endo_big_nichemap <- function(tile_map, valid_cells_mask, dates, microclim_d
   date_ranges <- .normalize_dates_with_sim_window(dates)
 
   if (!.endo_is_native(exe_path)) {
+    if (is.null(wineprefix))
+      stop("wineprefix is required to run a .exe under Wine off Windows; ",
+           "pass a shared prefix path, or use a native (non-.exe) build")
     init_wine_prefix(wineprefix, headless = headless)
   }
 

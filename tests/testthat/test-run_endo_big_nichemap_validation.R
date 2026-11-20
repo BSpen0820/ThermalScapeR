@@ -77,3 +77,21 @@ test_that(".endo_resize_static_fields resizes statics without disturbing time-va
   expect_length(prepped$diet$digestive_efficiency, julnum)  # static field resized
   expect_length(prepped$animal$mass_by_julday, julnum)
 })
+
+test_that("run_endo_big_nichemap requires wineprefix only for a .exe off Windows", {
+  skip_on_os("windows")
+  expect_error(
+    run_endo_big_nichemap(
+      tile_map = "x", valid_cells_mask = "x", dates = as.Date(c("2022-01-01", "2022-01-31")),
+      microclim_dir = "x", dem = "x", refl_dir = "x", exe_path = "Endo2022a.EXE",
+      output_dir = tempdir()
+    ),
+    "wineprefix is required"
+  )
+})
+
+test_that(".endo_is_native treats an upper-case .EXE as Wine off Windows", {
+  expect_false(.endo_is_native("/a/ENDO.EXE", "Darwin"))
+  expect_true(.endo_is_native("/a/endo", "Darwin"))
+  expect_true(.endo_is_native("/a/ENDO.EXE", "Windows"))
+})
